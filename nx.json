@@ -23,12 +23,7 @@
         "serveStaticTargetName": "serve-static"
       }
     },
-    {
-      "plugin": "@nx/eslint/plugin",
-      "options": {
-        "targetName": "lint"
-      }
-    }
+    { "plugin": "@nx/eslint/plugin", "options": { "targetName": "lint" } }
   ],
   "targetDefaults": {
     "@angular/build:application": {
@@ -49,5 +44,6 @@
       "style": "css",
       "unitTestRunner": "none"
     }
-  }
+  },
+  "nxCloudId": "6a2207db7a75a40af668ade3"
 }
