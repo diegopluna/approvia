@@ -1,0 +1,32 @@
+{
+  "realm": "approvia",
+  "enabled": true,
+  "loginWithEmailAllowed": true,
+  "roles": { "realm": [{ "name": "user" }] },
+  "clients": [
+    {
+      "clientId": "user-service",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "secret": "user-service-secret",
+      "redirectUris": ["*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "test@approvia.dev",
+      "email": "test@approvia.dev",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "password123", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    }
+  ]
+}
