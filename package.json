@@ -2,7 +2,11 @@
   "name": "@approvia/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "dev:gateway": "nx serve gateway",
+    "dev:user": "nx serve user-service",
+    "dev:frontend": "nx serve frontend -- --proxy-config apps/frontend/proxy.conf.json"
+  },
   "private": true,
   "devDependencies": {
     "@angular-devkit/core": "~21.2.0",
