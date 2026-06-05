@@ -53,24 +53,12 @@ export class KeycloakService implements OnModuleInit {
   }
 
   async logout(refreshToken: string): Promise<LogoutResponse> {
-    const endSession = this.issuer.metadata.end_session_endpoint
-    if (!endSession) {
-      throw new BadGatewayException('Keycloak has no end_session_endpoint')
+    try {
+      await this.client.revoke(refreshToken, 'refresh_token')
+      return { success: true }
+    } catch (error) {
+      this.handleError(error)
     }
-    const body = new URLSearchParams({
-      client_id: this.config.getOrThrow<string>('KEYCLOAK_CLIENT_ID'),
-      client_secret: this.config.getOrThrow<string>('KEYCLOAK_CLIENT_SECRET'),
-      refresh_token: refreshToken,
-    })
-    const res = await fetch(endSession, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    })
-    if (!res.ok) {
-      throw new BadGatewayException('Keycloak logout failed')
-    }
-    return { success: true }
   }
 
   private toLoginResponse(tokenSet: TokenSet): LoginResponse {
