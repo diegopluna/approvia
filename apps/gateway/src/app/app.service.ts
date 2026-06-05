@@ -1,6 +1,9 @@
 import {
   LoginRequest,
   LoginResponse,
+  LogoutRequest,
+  LogoutResponse,
+  RefreshRequest,
   USER_SERVICE_PATTERNS,
 } from '@approvia/contracts'
 import {
@@ -39,6 +42,36 @@ export class AppService implements OnModuleDestroy {
     }
   }
 
+  async refresh(request: RefreshRequest): Promise<LoginResponse> {
+    try {
+      return await firstValueFrom(
+        this.userServiceClient
+          .send<
+            LoginResponse,
+            RefreshRequest
+          >(USER_SERVICE_PATTERNS.REFRESH, request)
+          .pipe(timeout(10000)),
+      )
+    } catch (error) {
+      this.handleUserServiceError(error)
+    }
+  }
+
+  async logout(request: LogoutRequest): Promise<LogoutResponse> {
+    try {
+      return await firstValueFrom(
+        this.userServiceClient
+          .send<
+            LogoutResponse,
+            LogoutRequest
+          >(USER_SERVICE_PATTERNS.LOGOUT, request)
+          .pipe(timeout(10000)),
+      )
+    } catch (error) {
+      this.handleUserServiceError(error)
+    }
+  }
+
   onModuleDestroy() {
     return this.userServiceClient.close()
   }
@@ -58,9 +91,7 @@ export class AppService implements OnModuleDestroy {
     throw new BadGatewayException('User service login failed')
   }
 
-  private isRpcHttpError(
-    error: unknown,
-  ): error is {
+  private isRpcHttpError(error: unknown): error is {
     statusCode: number
     message: string | string[]
     error?: string
