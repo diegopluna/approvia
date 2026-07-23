@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common'
+import { PassportModule } from '@nestjs/passport'
 import { AppController } from './app.controller'
-import { AppService } from './app.service'
+import { JwtStrategy } from './jwt.strategy'
+import { RealmRoleGuard } from './realm-role.guard'
 
 @Module({
-  imports: [],
+  imports: [PassportModule],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [JwtStrategy, RealmRoleGuard],
 })
 export class AppModule {}

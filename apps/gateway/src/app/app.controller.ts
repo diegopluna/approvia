@@ -1,12 +1,12 @@
-import { Controller, Get } from '@nestjs/common'
-import { AppService } from './app.service'
+import { Controller, Get, Request, UseGuards } from '@nestjs/common'
+import { AuthGuard } from '@nestjs/passport'
+import { RealmRoleGuard } from './realm-role.guard'
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  getData() {
-    return this.appService.getData()
+  @Get('me')
+  @UseGuards(AuthGuard('jwt'), RealmRoleGuard)
+  me(@Request() req: { user: Record<string, unknown> }) {
+    return req.user
   }
 }
