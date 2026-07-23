@@ -1,52 +1,89 @@
-import { HttpClient } from '@angular/common/http'
-import { computed, inject, Injectable, signal } from '@angular/core'
-import { Observable, tap, throwError } from 'rxjs'
-import { LoginResponse, LogoutResponse } from '@approvia/contracts'
+import { Injectable, signal } from '@angular/core'
+import Keycloak, { type KeycloakConfig } from 'keycloak-js'
 
-const REFRESH_KEY = 'approvia.refresh_token'
+const MIN_TOKEN_VALIDITY_SECONDS = 30
+const AUTH_CONFIG_URL = '/auth-config.json'
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private http = inject(HttpClient)
+  private keycloak: Keycloak | null = null
 
-  private readonly _accessToken = signal<string | null>(null)
-  readonly accessToken = this._accessToken.asReadonly()
-  readonly isAuthenticated = computed(() => this._accessToken !== null)
+  private readonly _authenticated = signal(false)
+  readonly isAuthenticated = this._authenticated.asReadonly()
 
-  get refreshToken(): string | null {
-    return localStorage.getItem(REFRESH_KEY)
+  async init(): Promise<void> {
+    const keycloak = new Keycloak(await this.loadConfig())
+    this.keycloak = keycloak
+    keycloak.onAuthSuccess = () => this._authenticated.set(true)
+    keycloak.onAuthRefreshSuccess = () => this._authenticated.set(true)
+    keycloak.onAuthLogout = () => this._authenticated.set(false)
+    keycloak.onAuthRefreshError = () => this._authenticated.set(false)
+    keycloak.onTokenExpired = () => void this.getToken()
+
+    const authenticated = await keycloak.init({
+      onLoad: 'check-sso',
+      silentCheckSsoRedirectUri: `${location.origin}/silent-check-sso.html`,
+      pkceMethod: 'S256',
+    })
+    this._authenticated.set(authenticated)
   }
 
-  login(email: string, password: string): Observable<LoginResponse> {
-    return this.http
-      .post<LoginResponse>('/api/login', { email, password })
-      .pipe(tap((res) => this.store(res)))
+  login(redirectUri: string = location.href): Promise<void> {
+    return this.getKeycloak().login({ redirectUri })
   }
 
-  refresh(): Observable<LoginResponse> {
-    const refresh_token = this.refreshToken
-    if (!refresh_token) {
-      return throwError(() => new Error('No refresh token'))
+  logout(): Promise<void> {
+    this._authenticated.set(false)
+    return this.getKeycloak().logout({ redirectUri: location.origin })
+  }
+
+  async getToken(): Promise<string | null> {
+    const keycloak = this.keycloak
+    if (!keycloak?.authenticated) return null
+
+    try {
+      await keycloak.updateToken(MIN_TOKEN_VALIDITY_SECONDS)
+      this._authenticated.set(true)
+    } catch {
+      keycloak.clearToken()
+      this._authenticated.set(false)
+      return null
     }
-    return this.http
-      .post<LoginResponse>('/api/refresh', { refresh_token })
-      .pipe(tap((res) => this.store(res)))
+
+    return keycloak.token ?? null
   }
 
-  logout(): Observable<LogoutResponse> {
-    const refresh_token = this.refreshToken
-    return this.http
-      .post<LogoutResponse>('/api/logout', { refresh_token })
-      .pipe(tap(() => this.clear()))
+  private getKeycloak(): Keycloak {
+    if (!this.keycloak) throw new Error('Authentication is not initialized')
+    return this.keycloak
   }
 
-  private store(res: LoginResponse) {
-    this._accessToken.set(res.access_token)
-    if (res.refresh_token) localStorage.setItem(REFRESH_KEY, res.refresh_token)
-  }
+  private async loadConfig(): Promise<KeycloakConfig> {
+    const response = await fetch(AUTH_CONFIG_URL, { cache: 'no-store' })
+    if (!response.ok) {
+      throw new Error(
+        `Unable to load authentication config: ${response.status}`,
+      )
+    }
 
-  clear() {
-    this._accessToken.set(null)
-    localStorage.removeItem(REFRESH_KEY)
+    const config: unknown = await response.json()
+    if (
+      typeof config !== 'object' ||
+      config === null ||
+      !('url' in config) ||
+      typeof config.url !== 'string' ||
+      !('realm' in config) ||
+      typeof config.realm !== 'string' ||
+      !('clientId' in config) ||
+      typeof config.clientId !== 'string'
+    ) {
+      throw new Error('Authentication config is invalid')
+    }
+
+    return {
+      url: config.url,
+      realm: config.realm,
+      clientId: config.clientId,
+    }
   }
 }

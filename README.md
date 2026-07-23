@@ -1,10 +1,59 @@
 # Approvia
 
+## Local authentication
+
+Install dependencies and start Keycloak:
+
+```sh
+pnpm install
+docker compose -f infra/docker-compose.yml up -d
+```
+
+Start the gateway and frontend in separate terminals:
+
+```sh
+pnpm dev:gateway
+pnpm dev:frontend
+```
+
+Open `http://localhost:4200` and sign in with
+`test@approvia.dev` / `password123`.
+
+The frontend uses Authorization Code flow with PKCE. Keycloak tokens are kept in
+memory, refreshed by `keycloak-js`, and sent only to same-origin `/api` requests.
+The gateway verifies the signature, issuer, `gateway` audience, expiration, and
+the required `user` realm role.
+
+Run the frontend and gateway authentication suites with:
+
+```sh
+pnpm test:auth
+```
+
+## Deployment authentication
+
+`apps/frontend/public/auth-config.json` is runtime configuration. Replace that
+file when deploying the built frontend; a rebuild is not required:
+
+```json
+{
+  "url": "https://identity.example.com",
+  "realm": "approvia",
+  "clientId": "frontend"
+}
+```
+
+Set `KEYCLOAK_BASE_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_AUDIENCE`, and
+`KEYCLOAK_REQUIRED_ROLE` for the gateway. Configure the production frontend
+origin as an exact valid redirect URI, web origin, and post-logout redirect URI
+in Keycloak. Do not use the development credentials from the realm export in a
+production realm.
+
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 
 ✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
 
 ## Generate a library
 
@@ -79,12 +128,13 @@ Nx Console is an editor extension that enriches your developer experience. It le
 
 Learn more:
 
-- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects)
+- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 
 And join the Nx community:
+
 - [Discord](https://go.nx.dev/community)
 - [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
 - [Our Youtube channel](https://www.youtube.com/@nxdevtools)

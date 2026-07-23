@@ -1,5 +1,4 @@
 import { Component, inject } from '@angular/core'
-import { Router } from '@angular/router'
 import { AuthService } from '../auth/auth.service'
 
 @Component({
@@ -11,12 +10,8 @@ import { AuthService } from '../auth/auth.service'
 })
 export class Home {
   private auth = inject(AuthService)
-  private router = inject(Router)
 
   logout() {
-    this.auth.logout().subscribe({
-      next: () => this.router.navigate(['/login']),
-      error: () => this.router.navigate(['/login']),
-    })
+    void this.auth.logout()
   }
 }
