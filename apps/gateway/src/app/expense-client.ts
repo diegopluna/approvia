@@ -1,0 +1,1 @@
+export const EXPENSE_SERVICE = Symbol('EXPENSE_SERVICE')

@@ -1,15 +1,211 @@
-import { Component, inject } from '@angular/core'
+import { CurrencyPipe, DatePipe } from '@angular/common'
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal,
+} from '@angular/core'
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms'
+import { MatButtonModule } from '@angular/material/button'
+import { MatCardModule } from '@angular/material/card'
+import { MatChipsModule } from '@angular/material/chips'
+import { MatDividerModule } from '@angular/material/divider'
+import { MatFormFieldModule } from '@angular/material/form-field'
+import { MatInputModule } from '@angular/material/input'
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner'
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar'
+import { MatToolbarModule } from '@angular/material/toolbar'
+import { firstValueFrom } from 'rxjs'
 import { AuthService } from '../auth/auth.service'
+import {
+  PurchaseRequest,
+  PurchaseRequestsService,
+} from '../purchase-requests/purchase-requests.service'
 
 @Component({
   selector: 'app-home',
-  template: `
-    <h1>Home (protected)</h1>
-    <button (click)="logout()">Log out</button>
-  `,
+  imports: [
+    DatePipe,
+    CurrencyPipe,
+    ReactiveFormsModule,
+    MatButtonModule,
+    MatCardModule,
+    MatChipsModule,
+    MatDividerModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatProgressSpinnerModule,
+    MatSnackBarModule,
+    MatToolbarModule,
+  ],
+  templateUrl: './home.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Home {
-  private auth = inject(AuthService)
+  private readonly auth = inject(AuthService)
+  private readonly api = inject(PurchaseRequestsService)
+  private readonly formBuilder = inject(FormBuilder)
+  private readonly snackBar = inject(MatSnackBar)
+
+  readonly displayName = this.auth.displayName()
+  readonly isApprover = this.auth.hasRealmRole('approver')
+  readonly requests = signal<PurchaseRequest[]>([])
+  readonly pending = signal<PurchaseRequest[]>([])
+  readonly approved = signal<PurchaseRequest[]>([])
+  readonly loading = signal(true)
+  readonly pageError = signal('')
+  readonly formError = signal('')
+  readonly formOpen = signal(false)
+  readonly actionId = signal<string | null>(null)
+  readonly rejectingId = signal<string | null>(null)
+
+  readonly requestForm = this.formBuilder.nonNullable.group({
+    title: [
+      '',
+      [Validators.required, Validators.minLength(3), Validators.maxLength(120)],
+    ],
+    amount: [
+      '',
+      [
+        Validators.required,
+        Validators.pattern(/^(?:0|[1-9]\d{0,5})(?:[.,]\d{1,2})?$/),
+      ],
+    ],
+    justification: [
+      '',
+      [Validators.required, Validators.minLength(5), Validators.maxLength(1000)],
+    ],
+  })
+
+  readonly rejectionForm = this.formBuilder.nonNullable.group({
+    comment: ['', [Validators.required, Validators.maxLength(1000)]],
+  })
+
+  constructor() {
+    void this.load()
+  }
+
+  async load() {
+    this.loading.set(true)
+    this.pageError.set('')
+
+    try {
+      if (this.isApprover) {
+        const [pending, approved] = await Promise.all([
+          firstValueFrom(this.api.pending()),
+          firstValueFrom(this.api.approved()),
+        ])
+        this.pending.set(pending)
+        this.approved.set(approved)
+      } else {
+        this.requests.set(await firstValueFrom(this.api.mine()))
+      }
+    } catch {
+      this.pageError.set('Não foi possível carregar as solicitações.')
+    } finally {
+      this.loading.set(false)
+    }
+  }
+
+  openForm() {
+    this.formError.set('')
+    this.formOpen.set(true)
+  }
+
+  closeForm() {
+    this.formOpen.set(false)
+    this.requestForm.reset()
+    this.formError.set('')
+  }
+
+  async submitRequest() {
+    if (this.requestForm.invalid) {
+      this.requestForm.markAllAsTouched()
+      return
+    }
+
+    this.actionId.set('create')
+    this.formError.set('')
+    const value = this.requestForm.getRawValue()
+
+    try {
+      const created = await firstValueFrom(
+        this.api.create({
+          title: value.title.trim(),
+          amount: value.amount.replace(',', '.'),
+          justification: value.justification.trim(),
+        }),
+      )
+      this.requests.update((requests) => [created, ...requests])
+      this.closeForm()
+      this.snackBar.open('Solicitação enviada para aprovação.', undefined, {
+        duration: 3000,
+      })
+    } catch {
+      this.formError.set('Não foi possível enviar a solicitação.')
+    } finally {
+      this.actionId.set(null)
+    }
+  }
+
+  startRejecting(id: string) {
+    this.rejectionForm.reset()
+    this.rejectingId.set(id)
+  }
+
+  cancelRejecting() {
+    this.rejectingId.set(null)
+    this.rejectionForm.reset()
+  }
+
+  async decide(id: string, decision: 'APPROVED' | 'REJECTED') {
+    if (decision === 'REJECTED' && this.rejectionForm.invalid) {
+      this.rejectionForm.markAllAsTouched()
+      return
+    }
+
+    this.actionId.set(id)
+    this.pageError.set('')
+
+    try {
+      const comment =
+        decision === 'REJECTED'
+          ? this.rejectionForm.controls.comment.value.trim()
+          : undefined
+      const decided = await firstValueFrom(
+        this.api.decide(id, decision, comment),
+      )
+      this.pending.update((requests) =>
+        requests.filter((request) => request.id !== id),
+      )
+      if (decision === 'APPROVED') {
+        this.approved.update((requests) => [decided, ...requests])
+      }
+      this.cancelRejecting()
+      this.snackBar.open(
+        decision === 'APPROVED'
+          ? 'Solicitação aprovada.'
+          : 'Solicitação rejeitada.',
+        undefined,
+        { duration: 3000 },
+      )
+    } catch {
+      this.pageError.set(
+        'Não foi possível atualizar a solicitação. Ela pode já ter sido analisada.',
+      )
+      await this.load()
+    } finally {
+      this.actionId.set(null)
+    }
+  }
+
+  statusLabel(status: PurchaseRequest['status']): string {
+    return {
+      PENDING: 'Pendente',
+      APPROVED: 'Aprovada',
+      REJECTED: 'Rejeitada',
+    }[status]
+  }
 
   logout() {
     void this.auth.logout()

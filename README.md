@@ -1,33 +1,58 @@
 # Approvia
 
-## Local authentication
+## Local development
 
-Install dependencies and start Keycloak:
+Install dependencies, start PostgreSQL and Keycloak, then apply the database
+migration:
 
 ```sh
 pnpm install
-docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/docker-compose.yml up -d --wait
+pnpm expense:db:migrate
 ```
 
-Start the gateway and frontend in separate terminals:
+Start the expense microservice, gateway, and frontend in separate terminals:
 
 ```sh
+pnpm dev:expense
 pnpm dev:gateway
 pnpm dev:frontend
 ```
 
-Open `http://localhost:4200` and sign in with
-`test@approvia.dev` / `password123`.
+Open `http://localhost:4200`. Two development accounts are available:
+
+| Account | Password | Access |
+| --- | --- | --- |
+| `test@approvia.dev` | `password123` | Submit and track requests |
+| `approver@approvia.dev` | `password123` | Approve or reject requests and view approval history |
+
+Purchase amounts are stored in centavos and displayed in BRL. Requests have a
+single decision step: pending, approved, or rejected. Approvers cannot create
+requests, and rejections require a comment.
+
+The gateway owns HTTP authentication and role authorization. It forwards
+purchase-request commands over NestJS TCP transport to the `expense`
+microservice on port `3001`. The expense service owns the Prisma persistence and
+approval business rules.
+
+If port `5433` is already used, choose another host port and use the same port
+in the expense service database URL:
+
+```sh
+DATABASE_PORT=5434 docker compose -f infra/docker-compose.yml up -d database
+DATABASE_URL=postgresql://approvia:approvia@localhost:5434/approvia?schema=public pnpm expense:db:deploy
+DATABASE_URL=postgresql://approvia:approvia@localhost:5434/approvia?schema=public pnpm dev:expense
+```
 
 The frontend uses Authorization Code flow with PKCE. Keycloak tokens are kept in
 memory, refreshed by `keycloak-js`, and sent only to same-origin `/api` requests.
 The gateway verifies the signature, issuer, `gateway` audience, expiration, and
 the required `user` realm role.
 
-Run the frontend and gateway authentication suites with:
+Run the frontend, gateway, and expense workflow suites with:
 
 ```sh
-pnpm test:auth
+pnpm test:all
 ```
 
 ## Deployment authentication
@@ -48,6 +73,16 @@ Set `KEYCLOAK_BASE_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_AUDIENCE`, and
 origin as an exact valid redirect URI, web origin, and post-logout redirect URI
 in Keycloak. Do not use the development credentials from the realm export in a
 production realm.
+
+Set `EXPENSE_SERVICE_HOST`, `EXPENSE_SERVICE_PORT`, and
+`EXPENSE_SERVICE_TIMEOUT_MS` on the gateway. Set `DATABASE_URL` and
+`EXPENSE_SERVICE_BIND_HOST` and `EXPENSE_SERVICE_PORT` on the expense service.
+`DATABASE_URL` is mandatory outside the local development script.
+
+The expense service binds to `127.0.0.1` by default. If gateway and expense run
+on different hosts or containers, expose the TCP port only on a private network
+or configure NestJS TCP TLS/mTLS. The user identity in microservice messages is
+trusted only because that transport boundary is private.
 
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 

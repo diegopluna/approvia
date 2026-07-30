@@ -37,6 +37,16 @@ export class AuthService {
     return this.getKeycloak().logout({ redirectUri: location.origin })
   }
 
+  hasRealmRole(role: string): boolean {
+    return this.keycloak?.hasRealmRole(role) ?? false
+  }
+
+  displayName(): string {
+    const token = this.keycloak?.tokenParsed
+    const name = token?.['name'] ?? token?.['preferred_username']
+    return typeof name === 'string' ? name : 'Usuário autenticado'
+  }
+
   async getToken(): Promise<string | null> {
     const keycloak = this.keycloak
     if (!keycloak?.authenticated) return null

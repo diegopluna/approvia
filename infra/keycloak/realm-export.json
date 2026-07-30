@@ -2,7 +2,7 @@
   "realm": "approvia",
   "enabled": true,
   "loginWithEmailAllowed": true,
-  "roles": { "realm": [{ "name": "user" }] },
+  "roles": { "realm": [{ "name": "user" }, { "name": "approver" }] },
   "clients": [
     {
       "clientId": "frontend",
@@ -51,6 +51,18 @@
         { "type": "password", "value": "password123", "temporary": false }
       ],
       "realmRoles": ["user"]
+    },
+    {
+      "username": "approver@approvia.dev",
+      "email": "approver@approvia.dev",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Alex",
+      "lastName": "Approver",
+      "credentials": [
+        { "type": "password", "value": "password123", "temporary": false }
+      ],
+      "realmRoles": ["user", "approver"]
     }
   ]
 }

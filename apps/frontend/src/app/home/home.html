@@ -1,0 +1,259 @@
+<div class="min-h-screen bg-neutral-50">
+  <mat-toolbar class="border-b border-neutral-200">
+    <span class="text-lg font-semibold">Approvia</span>
+    <span class="flex-1"></span>
+    <div class="mr-2 hidden text-right sm:block">
+      <p class="m-0 text-sm font-medium leading-5">{{ displayName }}</p>
+      <p class="m-0 text-xs font-normal text-neutral-500">
+        {{ isApprover ? 'Aprovador' : 'Solicitante' }}
+      </p>
+    </div>
+    <button mat-button type="button" (click)="logout()">Sair</button>
+  </mat-toolbar>
+
+  <main class="mx-auto w-[min(900px,calc(100%-2rem))] py-8 sm:py-12">
+    @if (isApprover) {
+      <header class="mb-10 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
+        <div>
+          <p class="mb-1 text-sm font-medium text-blue-700">Área de aprovação</p>
+          <h1 class="m-0 text-3xl font-semibold tracking-tight text-neutral-900">Solicitações de compra</h1>
+          <p class="mt-2 text-neutral-600">Analise o que está pendente e consulte suas aprovações anteriores.</p>
+        </div>
+        <button mat-stroked-button type="button" [disabled]="loading()" (click)="load()">
+          Atualizar
+        </button>
+      </header>
+
+      @if (pageError()) {
+        <p class="mb-6 rounded-lg bg-red-50 px-4 py-3 text-red-900" role="alert">{{ pageError() }}</p>
+      }
+
+      @if (loading()) {
+        <div class="flex justify-center p-16" aria-label="Carregando solicitações">
+          <mat-spinner diameter="40"></mat-spinner>
+        </div>
+      } @else {
+        <section aria-labelledby="pending-title">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 id="pending-title" class="m-0 text-xl font-semibold text-neutral-900">Aguardando análise</h2>
+            <mat-chip-set aria-label="Quantidade de solicitações pendentes">
+              <mat-chip>{{ pending().length }} pendente(s)</mat-chip>
+            </mat-chip-set>
+          </div>
+
+          @if (pending().length === 0) {
+            <mat-card appearance="outlined">
+              <mat-card-content class="flex items-center gap-3">
+                <span class="text-2xl text-green-700">✓</span>
+                <div>
+                  <p class="m-0 font-medium">Tudo em dia</p>
+                  <p class="mb-0 mt-1 text-sm text-neutral-600">Não há solicitações aguardando aprovação.</p>
+                </div>
+              </mat-card-content>
+            </mat-card>
+          } @else {
+            <div class="grid gap-4">
+              @for (request of pending(); track request.id) {
+                <mat-card appearance="outlined">
+                  <mat-card-header>
+                    <mat-card-title>{{ request.title }}</mat-card-title>
+                    <mat-card-subtitle>
+                      {{ request.requesterName }} · {{ request.createdAt | date: 'dd/MM/yyyy HH:mm' }}
+                    </mat-card-subtitle>
+                  </mat-card-header>
+                  <mat-card-content>
+                    <p class="mb-3 text-2xl font-semibold text-neutral-900">
+                      {{ request.amount | currency: 'BRL' }}
+                    </p>
+                    <p class="mb-0 whitespace-pre-line text-neutral-700">{{ request.justification }}</p>
+
+                    @if (rejectingId() === request.id) {
+                      <div class="my-5"><mat-divider></mat-divider></div>
+                      <form [formGroup]="rejectionForm" (ngSubmit)="decide(request.id, 'REJECTED')">
+                        <mat-form-field appearance="outline" class="w-full">
+                          <mat-label>Motivo da rejeição</mat-label>
+                          <textarea matInput formControlName="comment" rows="3" maxlength="1000"></textarea>
+                          @if (rejectionForm.controls.comment.touched && rejectionForm.controls.comment.invalid) {
+                            <mat-error>Informe o motivo da rejeição.</mat-error>
+                          }
+                        </mat-form-field>
+                        <div class="flex justify-end gap-2">
+                          <button mat-button type="button" (click)="cancelRejecting()">Cancelar</button>
+                          <button mat-flat-button type="submit" [disabled]="actionId() === request.id">
+                            {{ actionId() === request.id ? 'Rejeitando...' : 'Confirmar rejeição' }}
+                          </button>
+                        </div>
+                      </form>
+                    }
+                  </mat-card-content>
+                  @if (rejectingId() !== request.id) {
+                    <mat-card-actions align="end">
+                      <button mat-button type="button" (click)="startRejecting(request.id)">Rejeitar</button>
+                      <button mat-flat-button type="button" [disabled]="actionId() === request.id" (click)="decide(request.id, 'APPROVED')">
+                        {{ actionId() === request.id ? 'Aprovando...' : 'Aprovar' }}
+                      </button>
+                    </mat-card-actions>
+                  }
+                </mat-card>
+              }
+            </div>
+          }
+        </section>
+
+        <div class="my-10"><mat-divider></mat-divider></div>
+
+        <section aria-labelledby="history-title">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 id="history-title" class="m-0 text-xl font-semibold text-neutral-900">Histórico de aprovações</h2>
+            <span class="text-sm text-neutral-500">{{ approved().length }} registro(s)</span>
+          </div>
+
+          @if (approved().length === 0) {
+            <mat-card appearance="outlined">
+              <mat-card-content class="text-neutral-600">Nenhuma solicitação aprovada até o momento.</mat-card-content>
+            </mat-card>
+          } @else {
+            <div class="grid gap-3">
+              @for (request of approved(); track request.id) {
+                <mat-card appearance="outlined">
+                  <mat-card-content>
+                    <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                      <div>
+                        <p class="m-0 font-medium text-neutral-900">{{ request.title }}</p>
+                        <p class="mb-0 mt-1 text-sm text-neutral-600">
+                          {{ request.requesterName }} · {{ request.decidedAt | date: 'dd/MM/yyyy HH:mm' }}
+                        </p>
+                      </div>
+                      <p class="m-0 whitespace-nowrap font-semibold text-neutral-900">
+                        {{ request.amount | currency: 'BRL' }}
+                      </p>
+                    </div>
+                  </mat-card-content>
+                </mat-card>
+              }
+            </div>
+          }
+        </section>
+      }
+    } @else {
+      <header class="mb-10 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
+        <div>
+          <p class="mb-1 text-sm font-medium text-blue-700">Compras</p>
+          <h1 class="m-0 text-3xl font-semibold tracking-tight text-neutral-900">Minhas solicitações</h1>
+          <p class="mt-2 text-neutral-600">Solicite uma compra e acompanhe a decisão.</p>
+        </div>
+        <button mat-flat-button type="button" [disabled]="formOpen()" (click)="openForm()">Nova solicitação</button>
+      </header>
+
+      @if (formOpen()) {
+        <mat-card appearance="outlined" class="mb-8">
+          <mat-card-header>
+            <mat-card-title>Nova solicitação</mat-card-title>
+            <mat-card-subtitle>Preencha os dados da compra.</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <form [formGroup]="requestForm" (ngSubmit)="submitRequest()">
+              <mat-form-field appearance="outline" class="w-full">
+                <mat-label>Descrição da compra</mat-label>
+                <input matInput formControlName="title" maxlength="120" />
+                @if (requestForm.controls.title.touched && requestForm.controls.title.invalid) {
+                  <mat-error>Informe uma descrição com pelo menos 3 caracteres.</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="mt-2 w-full">
+                <mat-label>Valor em reais</mat-label>
+                <span matTextPrefix>R$&nbsp;</span>
+                <input matInput inputmode="decimal" formControlName="amount" placeholder="0,00" />
+                @if (requestForm.controls.amount.touched && requestForm.controls.amount.invalid) {
+                  <mat-error>Informe um valor válido.</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="mt-2 w-full">
+                <mat-label>Justificativa</mat-label>
+                <textarea matInput formControlName="justification" rows="4" maxlength="1000"></textarea>
+                @if (requestForm.controls.justification.touched && requestForm.controls.justification.invalid) {
+                  <mat-error>Informe uma justificativa com pelo menos 5 caracteres.</mat-error>
+                }
+              </mat-form-field>
+
+              @if (formError()) {
+                <p class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-red-900" role="alert">{{ formError() }}</p>
+              }
+
+              <div class="flex justify-end gap-2">
+                <button mat-button type="button" [disabled]="actionId() === 'create'" (click)="closeForm()">Cancelar</button>
+                <button mat-flat-button type="submit" [disabled]="actionId() === 'create'">
+                  {{ actionId() === 'create' ? 'Enviando...' : 'Enviar para aprovação' }}
+                </button>
+              </div>
+            </form>
+          </mat-card-content>
+        </mat-card>
+      }
+
+      @if (pageError()) {
+        <p class="mb-6 rounded-lg bg-red-50 px-4 py-3 text-red-900" role="alert">{{ pageError() }}</p>
+      }
+
+      @if (loading()) {
+        <div class="flex justify-center p-16" aria-label="Carregando solicitações">
+          <mat-spinner diameter="40"></mat-spinner>
+        </div>
+      } @else if (requests().length === 0) {
+        <mat-card appearance="outlined">
+          <mat-card-content class="text-center">
+            <p class="m-0 font-medium text-neutral-900">Nenhuma solicitação criada</p>
+            <p class="mb-0 mt-1 text-sm text-neutral-600">Use o botão “Nova solicitação” para começar.</p>
+          </mat-card-content>
+        </mat-card>
+      } @else {
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="m-0 text-xl font-semibold text-neutral-900">Solicitações recentes</h2>
+          <span class="text-sm text-neutral-500">{{ requests().length }} total</span>
+        </div>
+
+        <div class="grid gap-4">
+          @for (request of requests(); track request.id) {
+            <mat-card appearance="outlined">
+              <mat-card-content>
+                <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <p class="m-0 font-medium text-neutral-900">{{ request.title }}</p>
+                      <span
+                        class="rounded-full px-2.5 py-1 text-xs font-medium"
+                        [class.bg-amber-100]="request.status === 'PENDING'"
+                        [class.text-amber-900]="request.status === 'PENDING'"
+                        [class.bg-green-100]="request.status === 'APPROVED'"
+                        [class.text-green-900]="request.status === 'APPROVED'"
+                        [class.bg-red-100]="request.status === 'REJECTED'"
+                        [class.text-red-900]="request.status === 'REJECTED'"
+                      >
+                        {{ statusLabel(request.status) }}
+                      </span>
+                    </div>
+                    <p class="mb-0 mt-2 whitespace-pre-line text-sm text-neutral-600">{{ request.justification }}</p>
+                  </div>
+                  <div class="sm:text-right">
+                    <p class="m-0 whitespace-nowrap font-semibold text-neutral-900">
+                      {{ request.amount | currency: 'BRL' }}
+                    </p>
+                    <p class="mb-0 mt-1 whitespace-nowrap text-xs text-neutral-500">
+                      {{ request.createdAt | date: 'dd/MM/yyyy HH:mm' }}
+                    </p>
+                  </div>
+                </div>
+                @if (request.decisionComment) {
+                  <div class="my-4"><mat-divider></mat-divider></div>
+                  <p class="m-0 text-sm text-neutral-700"><strong>Motivo:</strong> {{ request.decisionComment }}</p>
+                }
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
+      }
+    }
+  </main>
+</div>
