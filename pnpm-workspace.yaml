@@ -10,3 +10,6 @@ allowBuilds:
   nx: true
   prisma: true
   unrs-resolver: true
+overrides:
+  fast-uri: ^3.1.4
+  postcss: ^8.5.24

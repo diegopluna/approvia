@@ -2,8 +2,8 @@
 
 ## Local development
 
-Install dependencies, start PostgreSQL and Keycloak, then apply the database
-migration:
+Install dependencies, start PostgreSQL, Keycloak, and RabbitMQ, then apply the
+database migration:
 
 ```sh
 pnpm install
@@ -21,9 +21,9 @@ pnpm dev:frontend
 
 Open `http://localhost:4200`. Two development accounts are available:
 
-| Account | Password | Access |
-| --- | --- | --- |
-| `test@approvia.dev` | `password123` | Submit and track requests |
+| Account                 | Password      | Access                                               |
+| ----------------------- | ------------- | ---------------------------------------------------- |
+| `test@approvia.dev`     | `password123` | Submit and track requests                            |
 | `approver@approvia.dev` | `password123` | Approve or reject requests and view approval history |
 
 Purchase amounts are stored in centavos and displayed in BRL. Requests have a
@@ -31,9 +31,10 @@ single decision step: pending, approved, or rejected. Approvers cannot create
 requests, and rejections require a comment.
 
 The gateway owns HTTP authentication and role authorization. It forwards
-purchase-request commands over NestJS TCP transport to the `expense`
-microservice on port `3001`. The expense service owns the Prisma persistence and
-approval business rules.
+purchase-request commands over a durable RabbitMQ queue to the `expense`
+microservice. The expense service owns the Prisma persistence and approval
+business rules. RabbitMQ management is available at `http://localhost:15672`
+with the local `approvia` / `approvia` credentials.
 
 If port `5433` is already used, choose another host port and use the same port
 in the expense service database URL:
@@ -55,6 +56,9 @@ Run the frontend, gateway, and expense workflow suites with:
 pnpm test:all
 ```
 
+The proposed asynchronous email architecture and rollout are documented in
+[`docs/notifications.md`](docs/notifications.md).
+
 ## Deployment authentication
 
 `apps/frontend/public/auth-config.json` is runtime configuration. Replace that
@@ -74,15 +78,13 @@ origin as an exact valid redirect URI, web origin, and post-logout redirect URI
 in Keycloak. Do not use the development credentials from the realm export in a
 production realm.
 
-Set `EXPENSE_SERVICE_HOST`, `EXPENSE_SERVICE_PORT`, and
-`EXPENSE_SERVICE_TIMEOUT_MS` on the gateway. Set `DATABASE_URL` and
-`EXPENSE_SERVICE_BIND_HOST` and `EXPENSE_SERVICE_PORT` on the expense service.
-`DATABASE_URL` is mandatory outside the local development script.
-
-The expense service binds to `127.0.0.1` by default. If gateway and expense run
-on different hosts or containers, expose the TCP port only on a private network
-or configure NestJS TCP TLS/mTLS. The user identity in microservice messages is
-trusted only because that transport boundary is private.
+Set `RABBITMQ_URL`, `EXPENSE_SERVICE_QUEUE`, and
+`EXPENSE_SERVICE_QUEUE_DURABLE` on both the gateway and expense service. Set
+`EXPENSE_SERVICE_TIMEOUT_MS` on the gateway and `DATABASE_URL` on the expense
+service. `DATABASE_URL` is mandatory outside the local development script. Use
+TLS credentials and a dedicated RabbitMQ virtual host in production. The user
+identity in microservice messages is trusted only because access to that broker
+and queue is restricted to application services.
 
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 

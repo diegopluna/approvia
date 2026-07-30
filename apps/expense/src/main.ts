@@ -4,14 +4,20 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices'
 import { ExpenseModule } from './app/expense.module'
 
 async function bootstrap() {
-  const port = Number(process.env.EXPENSE_SERVICE_PORT ?? 3001)
+  const queue = process.env.EXPENSE_SERVICE_QUEUE ?? 'expense'
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     ExpenseModule,
     {
-      transport: Transport.TCP,
+      transport: Transport.RMQ,
       options: {
-        host: process.env.EXPENSE_SERVICE_BIND_HOST ?? '127.0.0.1',
-        port,
+        urls: [
+          process.env.RABBITMQ_URL ?? 'amqp://approvia:approvia@localhost:5672',
+        ],
+        queue,
+        queueOptions: {
+          durable: process.env.EXPENSE_SERVICE_QUEUE_DURABLE !== 'false',
+          autoDelete: process.env.EXPENSE_SERVICE_QUEUE_DURABLE === 'false',
+        },
       },
     },
   )
@@ -25,7 +31,7 @@ async function bootstrap() {
   )
   app.enableShutdownHooks()
   await app.listen()
-  Logger.log(`Expense microservice is listening on port ${port}`)
+  Logger.log(`Expense microservice is consuming queue ${queue}`)
 }
 
 bootstrap()

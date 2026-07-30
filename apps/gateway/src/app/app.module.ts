@@ -17,10 +17,18 @@ import { EXPENSE_SERVICE } from './expense-client'
       {
         name: EXPENSE_SERVICE,
         useFactory: () => ({
-          transport: Transport.TCP,
+          transport: Transport.RMQ,
           options: {
-            host: process.env.EXPENSE_SERVICE_HOST ?? '127.0.0.1',
-            port: Number(process.env.EXPENSE_SERVICE_PORT ?? 3001),
+            urls: [
+              process.env.RABBITMQ_URL ??
+                'amqp://approvia:approvia@localhost:5672',
+            ],
+            queue: process.env.EXPENSE_SERVICE_QUEUE ?? 'expense',
+            queueOptions: {
+              durable: process.env.EXPENSE_SERVICE_QUEUE_DURABLE !== 'false',
+              autoDelete: process.env.EXPENSE_SERVICE_QUEUE_DURABLE === 'false',
+            },
+            persistent: true,
           },
         }),
       },

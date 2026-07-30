@@ -145,16 +145,10 @@ describe('GET /api/me authentication', () => {
     process.env.KEYCLOAK_AUDIENCE = AUDIENCE
     process.env.KEYCLOAK_REQUIRED_ROLE = 'user'
 
-    const portReservation = createServer()
-    await new Promise<void>((resolve) =>
-      portReservation.listen(0, '127.0.0.1', resolve),
-    )
-    const expensePort = (portReservation.address() as AddressInfo).port
-    await new Promise<void>((resolve, reject) =>
-      portReservation.close((error) => (error ? reject(error) : resolve())),
-    )
-    process.env.EXPENSE_SERVICE_HOST = '127.0.0.1'
-    process.env.EXPENSE_SERVICE_PORT = String(expensePort)
+    const expenseQueue = `expense-e2e-${randomUUID()}`
+    process.env.RABBITMQ_URL ??= 'amqp://approvia:approvia@localhost:5672'
+    process.env.EXPENSE_SERVICE_QUEUE = expenseQueue
+    process.env.EXPENSE_SERVICE_QUEUE_DURABLE = 'false'
 
     const expenseModuleRef = await Test.createTestingModule({
       imports: [ExpenseModule],
@@ -163,8 +157,12 @@ describe('GET /api/me authentication', () => {
       .useValue(prisma)
       .compile()
     expenseApp = expenseModuleRef.createNestMicroservice<MicroserviceOptions>({
-      transport: Transport.TCP,
-      options: { host: '127.0.0.1', port: expensePort },
+      transport: Transport.RMQ,
+      options: {
+        urls: [process.env.RABBITMQ_URL],
+        queue: expenseQueue,
+        queueOptions: { durable: false, autoDelete: true },
+      },
     })
     await expenseApp.listen()
 
