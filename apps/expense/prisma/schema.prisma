@@ -28,7 +28,9 @@ model PurchaseRequest {
   decidedByName     String?               @map("decided_by_name") @db.VarChar(255)
   decisionComment   String?               @map("decision_comment") @db.VarChar(1000)
   decidedAt         DateTime?             @map("decided_at") @db.Timestamptz(3)
+  idempotencyKey    String?               @map("idempotency_key") @db.VarChar(255)
 
+  @@unique([requesterId, idempotencyKey])
   @@index([requesterId, createdAt])
   @@index([status, createdAt])
   @@map("purchase_requests")

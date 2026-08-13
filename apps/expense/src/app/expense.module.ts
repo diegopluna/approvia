@@ -1,10 +1,16 @@
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
 import { ExpenseController } from './expense.controller'
 import { ExpenseService } from './expense.service'
 import { PrismaService } from './prisma.service'
+import { RmqAckInterceptor } from './rmq-ack.interceptor'
 
 @Module({
   controllers: [ExpenseController],
-  providers: [ExpenseService, PrismaService],
+  providers: [
+    ExpenseService,
+    PrismaService,
+    { provide: APP_INTERCEPTOR, useClass: RmqAckInterceptor },
+  ],
 })
 export class ExpenseModule {}
