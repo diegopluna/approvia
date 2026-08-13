@@ -59,6 +59,11 @@ export class Home {
   readonly actionId = signal<string | null>(null)
   readonly rejectingId = signal<string | null>(null)
 
+  // Chave de idempotência do create: gerada no envio e reutilizada em
+  // retentativas do mesmo conteúdo (ex.: reenviar após timeout com a escrita
+  // já feita); qualquer edição do formulário zera e força chave nova.
+  private createIdempotencyKey = ''
+
   readonly requestForm = this.formBuilder.nonNullable.group({
     title: [
       '',
@@ -82,6 +87,9 @@ export class Home {
   })
 
   constructor() {
+    this.requestForm.valueChanges.subscribe(() => {
+      this.createIdempotencyKey = ''
+    })
     void this.load()
   }
 
@@ -127,14 +135,18 @@ export class Home {
     this.actionId.set('create')
     this.formError.set('')
     const value = this.requestForm.getRawValue()
+    this.createIdempotencyKey ||= crypto.randomUUID()
 
     try {
       const created = await firstValueFrom(
-        this.api.create({
-          title: value.title.trim(),
-          amount: value.amount.replace(',', '.'),
-          justification: value.justification.trim(),
-        }),
+        this.api.create(
+          {
+            title: value.title.trim(),
+            amount: value.amount.replace(',', '.'),
+            justification: value.justification.trim(),
+          },
+          this.createIdempotencyKey,
+        ),
       )
       this.requests.update((requests) => [created, ...requests])
       this.closeForm()

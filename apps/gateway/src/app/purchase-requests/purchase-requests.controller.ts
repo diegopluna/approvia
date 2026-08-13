@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Headers,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -9,6 +11,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { AuthGuard } from '@nestjs/passport'
 import { ApproverRoleGuard } from '../approver-role.guard'
 import { RealmRoleGuard } from '../realm-role.guard'
@@ -36,8 +39,27 @@ export class PurchaseRequestsController {
   create(
     @Request() request: AuthenticatedRequest,
     @Body() input: CreatePurchaseRequestDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.purchaseRequests.create(request.user, input)
+    return this.purchaseRequests.create(
+      request.user,
+      input,
+      this.normalizeIdempotencyKey(idempotencyKey),
+    )
+  }
+
+  // Sem header do cliente, um UUID por requisição HTTP ainda deduplica
+  // reentregas da mensagem no broker (mas não retentativas do usuário).
+  private normalizeIdempotencyKey(header?: string): string {
+    if (header === undefined) return randomUUID()
+
+    const key = header.trim()
+    if (key.length < 8 || key.length > 255) {
+      throw new BadRequestException(
+        'Idempotency-Key deve ter entre 8 e 255 caracteres',
+      )
+    }
+    return key
   }
 
   @Get('mine')

@@ -28,8 +28,10 @@ export class PurchaseRequestsService {
   private readonly http = inject(HttpClient)
   private readonly baseUrl = '/api/purchase-requests'
 
-  create(input: NewPurchaseRequest) {
-    return this.http.post<PurchaseRequest>(this.baseUrl, input)
+  create(input: NewPurchaseRequest, idempotencyKey: string) {
+    return this.http.post<PurchaseRequest>(this.baseUrl, input, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    })
   }
 
   mine() {

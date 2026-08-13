@@ -4,7 +4,7 @@ import {
   INestMicroservice,
   ValidationPipe,
 } from '@nestjs/common'
-import { MicroserviceOptions, Transport } from '@nestjs/microservices'
+import { MicroserviceOptions } from '@nestjs/microservices'
 import { Test } from '@nestjs/testing'
 import { generateKeyPairSync, KeyObject, randomUUID } from 'node:crypto'
 import { createServer, Server } from 'node:http'
@@ -15,11 +15,14 @@ import { vi } from 'vitest'
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { AppModule } from '../../../gateway/src/app/app.module'
 // eslint-disable-next-line @nx/enforce-module-boundaries
+import { expenseRmqOptions } from '../../../expense/src/app/expense-rmq.options'
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { ExpenseModule } from '../../../expense/src/app/expense.module'
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { PrismaService } from '../../../expense/src/app/prisma.service'
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
+  Prisma,
   PurchaseRequest,
   PurchaseRequestStatus,
 } from '../../../expense/src/generated/prisma/client'
@@ -41,6 +44,23 @@ describe('GET /api/me authentication', () => {
     purchaseRequest: {
       create: vi.fn(
         ({ data }: { data: Partial<PurchaseRequest> }) => {
+          if (
+            data.idempotencyKey &&
+            purchaseRequests.some(
+              (item) =>
+                item.requesterId === data.requesterId &&
+                item.idempotencyKey === data.idempotencyKey,
+            )
+          ) {
+            throw new Prisma.PrismaClientKnownRequestError(
+              'Unique constraint failed',
+              {
+                code: 'P2002',
+                clientVersion: 'e2e',
+                meta: { target: ['requesterId', 'idempotencyKey'] },
+              },
+            )
+          }
           const request: PurchaseRequest = {
             id: randomUUID(),
             title: data.title ?? '',
@@ -55,6 +75,7 @@ describe('GET /api/me authentication', () => {
             decidedByName: null,
             decisionComment: null,
             decidedAt: null,
+            idempotencyKey: data.idempotencyKey ?? null,
           }
           purchaseRequests.push(request)
           return request
@@ -112,11 +133,29 @@ describe('GET /api/me authentication', () => {
           return { count: 1 }
         },
       ),
-      findUniqueOrThrow: vi.fn(({ where }: { where: { id: string } }) => {
-        const request = purchaseRequests.find((item) => item.id === where.id)
-        if (!request) throw new Error('Not found')
-        return request
-      }),
+      findUniqueOrThrow: vi.fn(
+        ({
+          where,
+        }: {
+          where: {
+            id?: string
+            requesterId_idempotencyKey?: {
+              requesterId: string
+              idempotencyKey: string
+            }
+          }
+        }) => {
+          const compound = where.requesterId_idempotencyKey
+          const request = purchaseRequests.find((item) =>
+            compound
+              ? item.requesterId === compound.requesterId &&
+                item.idempotencyKey === compound.idempotencyKey
+              : item.id === where.id,
+          )
+          if (!request) throw new Error('Not found')
+          return request
+        },
+      ),
     },
   }
 
@@ -156,14 +195,9 @@ describe('GET /api/me authentication', () => {
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .compile()
-    expenseApp = expenseModuleRef.createNestMicroservice<MicroserviceOptions>({
-      transport: Transport.RMQ,
-      options: {
-        urls: [process.env.RABBITMQ_URL],
-        queue: expenseQueue,
-        queueOptions: { durable: false, autoDelete: true },
-      },
-    })
+    expenseApp = expenseModuleRef.createNestMicroservice<MicroserviceOptions>(
+      expenseRmqOptions(),
+    )
     await expenseApp.listen()
 
     const moduleRef = await Test.createTestingModule({
@@ -326,6 +360,20 @@ describe('GET /api/me authentication', () => {
       decidedByName: 'Alex Approver',
     })
 
+    const decisionRetry = await request(
+      approverToken,
+      `purchase-requests/${created.id}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision: 'APPROVED' }),
+      },
+    )
+    expect(decisionRetry.status).toBe(201)
+    expect(await decisionRetry.json()).toMatchObject({
+      id: created.id,
+      status: 'APPROVED',
+    })
+
     const duplicateDecision = await request(
       approverToken,
       `purchase-requests/${created.id}/decision`,
@@ -357,6 +405,57 @@ describe('GET /api/me authentication', () => {
       'purchase-requests/pending',
     )
     expect(await emptyPendingResponse.json()).toEqual([])
+  })
+
+  it('replays a create with the same idempotency key instead of duplicating', async () => {
+    purchaseRequests.length = 0
+    const requesterToken = token({
+      subject: 'requester-id',
+      name: 'Test Requester',
+    })
+    const key = `e2e-key-${randomUUID()}`
+    const body = JSON.stringify({
+      title: 'Standing desk',
+      amount: '2500.00',
+      justification: 'Ergonomics for the team.',
+    })
+
+    const first = await request(requesterToken, 'purchase-requests', {
+      method: 'POST',
+      body,
+      headers: { 'idempotency-key': key },
+    })
+    expect(first.status).toBe(201)
+    const created = (await first.json()) as { id: string }
+
+    const retry = await request(requesterToken, 'purchase-requests', {
+      method: 'POST',
+      body,
+      headers: { 'idempotency-key': key },
+    })
+    expect(retry.status).toBe(201)
+    expect(((await retry.json()) as { id: string }).id).toBe(created.id)
+
+    const mine = await request(requesterToken, 'purchase-requests/mine')
+    expect(((await mine.json()) as unknown[]).length).toBe(1)
+
+    const conflict = await request(requesterToken, 'purchase-requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Different desk',
+        amount: '100.00',
+        justification: 'Same key, different content.',
+      }),
+      headers: { 'idempotency-key': key },
+    })
+    expect(conflict.status).toBe(409)
+
+    const invalidKey = await request(requesterToken, 'purchase-requests', {
+      method: 'POST',
+      body,
+      headers: { 'idempotency-key': 'short' },
+    })
+    expect(invalidKey.status).toBe(400)
   })
 
   it('requires a comment when rejecting a request', async () => {

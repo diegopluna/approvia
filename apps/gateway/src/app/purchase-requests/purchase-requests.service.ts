@@ -32,10 +32,15 @@ export class PurchaseRequestsService {
     @Inject(EXPENSE_SERVICE) private readonly expenseClient: ClientProxy,
   ) {}
 
-  create(tokenUser: TokenUser, input: CreatePurchaseRequestDto) {
+  create(
+    tokenUser: TokenUser,
+    input: CreatePurchaseRequestDto,
+    idempotencyKey: string,
+  ) {
     return this.send('expense.create', {
       user: this.currentUser(tokenUser),
       input,
+      idempotencyKey,
     })
   }
 

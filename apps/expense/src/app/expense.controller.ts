@@ -16,9 +16,17 @@ export class ExpenseController {
   @MessagePattern({ cmd: 'expense.create' })
   create(
     @Payload()
-    payload: { user: ExpenseUser; input: CreateExpenseRequest },
+    payload: {
+      user: ExpenseUser
+      input: CreateExpenseRequest
+      idempotencyKey?: string
+    },
   ) {
-    return this.expenseService.create(payload.user, payload.input)
+    return this.expenseService.create(
+      payload.user,
+      payload.input,
+      payload.idempotencyKey,
+    )
   }
 
   @MessagePattern({ cmd: 'expense.mine' })
