@@ -23,6 +23,7 @@ model PurchaseRequest {
   status            PurchaseRequestStatus @default(PENDING)
   requesterId       String                @map("requester_id") @db.VarChar(255)
   requesterName     String                @map("requester_name") @db.VarChar(255)
+  requesterEmail    String?               @map("requester_email") @db.VarChar(320)
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   decidedById       String?               @map("decided_by_id") @db.VarChar(255)
   decidedByName     String?               @map("decided_by_name") @db.VarChar(255)
@@ -32,4 +33,19 @@ model PurchaseRequest {
   @@index([requesterId, createdAt])
   @@index([status, createdAt])
   @@map("purchase_requests")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventName   String    @map("event_name") @db.VarChar(120)
+  aggregateId String    @map("aggregate_id") @db.Uuid
+  payload     Json
+  occurredAt  DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error") @db.Text
+  processingAt DateTime? @map("processing_at") @db.Timestamptz(3)
+
+  @@index([publishedAt, occurredAt])
+  @@map("outbox_events")
 }

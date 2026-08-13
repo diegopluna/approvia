@@ -1,5 +1,8 @@
 # Notifications module plan
 
+Status: implemented for the initial lifecycle-email scope. Production provider
+activation and metrics integration remain deployment work.
+
 ## Scope
 
 The first release sends transactional email for these events:

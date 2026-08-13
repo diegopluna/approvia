@@ -12,6 +12,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['apps/gateway-e2e/src/**/*.spec.ts'],
+    include: ['apps/notifications/src/**/*.spec.ts'],
   },
 })

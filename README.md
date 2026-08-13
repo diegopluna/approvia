@@ -2,19 +2,22 @@
 
 ## Local development
 
-Install dependencies, start PostgreSQL, Keycloak, and RabbitMQ, then apply the
-database migration:
+Install dependencies, start PostgreSQL, Keycloak, RabbitMQ, and Mailpit, then
+apply both database migrations:
 
 ```sh
 pnpm install
 docker compose -f infra/docker-compose.yml up -d --wait
 pnpm expense:db:migrate
+pnpm notifications:db:migrate
 ```
 
-Start the expense microservice, gateway, and frontend in separate terminals:
+Start the expense microservice, notifications worker, gateway, and frontend in
+separate terminals:
 
 ```sh
 pnpm dev:expense
+pnpm dev:notifications
 pnpm dev:gateway
 pnpm dev:frontend
 ```
@@ -34,7 +37,8 @@ The gateway owns HTTP authentication and role authorization. It forwards
 purchase-request commands over a durable RabbitMQ queue to the `expense`
 microservice. The expense service owns the Prisma persistence and approval
 business rules. RabbitMQ management is available at `http://localhost:15672`
-with the local `approvia` / `approvia` credentials.
+with the local `approvia` / `approvia` credentials. Email is captured by Mailpit
+over SMTP port `1026` and displayed at `http://localhost:8025`.
 
 If port `5433` is already used, choose another host port and use the same port
 in the expense service database URL:
@@ -56,7 +60,7 @@ Run the frontend, gateway, and expense workflow suites with:
 pnpm test:all
 ```
 
-The proposed asynchronous email architecture and rollout are documented in
+The asynchronous email architecture and operational details are documented in
 [`docs/notifications.md`](docs/notifications.md).
 
 ## Deployment authentication
@@ -85,6 +89,12 @@ service. `DATABASE_URL` is mandatory outside the local development script. Use
 TLS credentials and a dedicated RabbitMQ virtual host in production. The user
 identity in microservice messages is trusted only because access to that broker
 and queue is restricted to application services.
+
+The notifications worker also requires `NOTIFICATIONS_DATABASE_URL`, a
+restricted Keycloak service-account client, and email provider configuration.
+Set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `EMAIL_FROM` in production.
+The local default is SMTP through Mailpit. Expense events are published from a
+transactional outbox, so email availability does not affect expense commands.
 
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 

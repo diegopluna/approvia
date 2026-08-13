@@ -8,3 +8,48 @@ body {
 body {
   font-family: Roboto, Arial, sans-serif;
 }
+
+.startup-error {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+  background: #fafafa;
+  color: #171717;
+}
+
+.startup-error__card {
+  width: min(100%, 36rem);
+  padding: 2rem;
+  border: 1px solid #e5e5e5;
+  border-radius: 0.75rem;
+  background: white;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+}
+
+.startup-error h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+}
+
+.startup-error p {
+  margin: 0 0 1rem;
+  color: #525252;
+  line-height: 1.5;
+}
+
+.startup-error code {
+  display: block;
+  overflow-x: auto;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #f5f5f5;
+  font-size: 0.875rem;
+}
+
+.startup-error a {
+  color: #1d4ed8;
+  font-weight: 500;
+}
