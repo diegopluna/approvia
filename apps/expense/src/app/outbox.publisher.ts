@@ -97,7 +97,7 @@ export class OutboxPublisher
           await this.channel.publish(
             APPLICATION_EVENTS_EXCHANGE,
             event.eventName,
-            event.payload,
+            Buffer.from(JSON.stringify(event.payload)),
             {
               persistent: true,
               contentType: 'application/json',
