@@ -7,14 +7,18 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "postinstall": "pnpm expense:db:generate",
+    "postinstall": "pnpm expense:db:generate && pnpm notifications:db:generate",
     "expense:db:generate": "DATABASE_URL=${DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=public} prisma generate --config apps/expense/prisma.config.ts",
     "expense:db:migrate": "DATABASE_URL=${DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=public} prisma migrate dev --config apps/expense/prisma.config.ts && pnpm expense:db:generate",
     "expense:db:deploy": "DATABASE_URL=${DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=public} prisma migrate deploy --config apps/expense/prisma.config.ts",
+    "notifications:db:generate": "NOTIFICATIONS_DATABASE_URL=${NOTIFICATIONS_DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=notifications} prisma generate --config apps/notifications/prisma.config.ts",
+    "notifications:db:migrate": "NOTIFICATIONS_DATABASE_URL=${NOTIFICATIONS_DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=notifications} prisma migrate dev --config apps/notifications/prisma.config.ts && pnpm notifications:db:generate",
+    "notifications:db:deploy": "NOTIFICATIONS_DATABASE_URL=${NOTIFICATIONS_DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=notifications} prisma migrate deploy --config apps/notifications/prisma.config.ts",
     "dev:gateway": "nx serve gateway",
     "dev:expense": "DATABASE_URL=${DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=public} nx serve expense",
+    "dev:notifications": "NOTIFICATIONS_DATABASE_URL=${NOTIFICATIONS_DATABASE_URL:-postgresql://approvia:approvia@localhost:5433/approvia?schema=notifications} nx serve notifications",
     "dev:frontend": "nx serve frontend -- --proxy-config apps/frontend/proxy.conf.json",
-    "test:all": "nx test frontend && nx e2e gateway-e2e",
+    "test:all": "nx test events && nx test frontend && nx test notifications && nx e2e gateway-e2e",
     "test:auth": "nx test frontend && nx e2e gateway-e2e"
   },
   "private": true,
@@ -43,6 +47,7 @@
     "@swc/helpers": "~0.5.18",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "20.19.9",
+    "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/utils": "^8.40.0",
@@ -84,11 +89,13 @@
     "dotenv": "^17.4.2",
     "jwks-rsa": "^4.0.1",
     "keycloak-js": "^26.2.4",
+    "nodemailer": "^9.0.3",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.22.0",
     "postcss": "^8.5.24",
     "reflect-metadata": "^0.1.13",
+    "resend": "^6.18.1",
     "rxjs": "^7.8.0",
     "tailwindcss": "^4.3.0"
   }

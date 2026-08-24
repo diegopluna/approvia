@@ -4,12 +4,14 @@ import { ExpenseController } from './expense.controller'
 import { ExpenseService } from './expense.service'
 import { PrismaService } from './prisma.service'
 import { RmqAckInterceptor } from './rmq-ack.interceptor'
+import { OutboxPublisher } from './outbox.publisher'
 
 @Module({
   controllers: [ExpenseController],
   providers: [
     ExpenseService,
     PrismaService,
+    OutboxPublisher,
     { provide: APP_INTERCEPTOR, useClass: RmqAckInterceptor },
   ],
 })

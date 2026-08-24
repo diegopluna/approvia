@@ -70,6 +70,7 @@ describe('GET /api/me authentication', () => {
             status: data.status ?? PurchaseRequestStatus.PENDING,
             requesterId: data.requesterId ?? '',
             requesterName: data.requesterName ?? '',
+            requesterEmail: data.requesterEmail ?? null,
             createdAt: new Date(),
             decidedById: null,
             decidedByName: null,
@@ -157,6 +158,13 @@ describe('GET /api/me authentication', () => {
         },
       ),
     },
+    outboxEvent: {
+      create: vi.fn(),
+    },
+    $transaction: vi.fn(
+      (callback: (transaction: Record<string, unknown>) => unknown) =>
+        callback(prisma),
+    ),
   }
 
   beforeAll(async () => {
@@ -188,6 +196,7 @@ describe('GET /api/me authentication', () => {
     process.env.RABBITMQ_URL ??= 'amqp://approvia:approvia@localhost:5672'
     process.env.EXPENSE_SERVICE_QUEUE = expenseQueue
     process.env.EXPENSE_SERVICE_QUEUE_DURABLE = 'false'
+    process.env.OUTBOX_PUBLISHER_ENABLED = 'false'
 
     const expenseModuleRef = await Test.createTestingModule({
       imports: [ExpenseModule],
@@ -268,6 +277,7 @@ describe('GET /api/me authentication', () => {
 
   it('completes the purchase request approval workflow', async () => {
     purchaseRequests.length = 0
+    prisma.outboxEvent.create.mockClear()
     const requesterToken = token({
       subject: 'requester-id',
       name: 'Test Requester',
@@ -405,6 +415,22 @@ describe('GET /api/me authentication', () => {
       'purchase-requests/pending',
     )
     expect(await emptyPendingResponse.json()).toEqual([])
+    expect(prisma.outboxEvent.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventName: 'expense.request.created.v1',
+        }),
+      }),
+    )
+    expect(prisma.outboxEvent.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventName: 'expense.request.approved.v1',
+        }),
+      }),
+    )
   })
 
   it('replays a create with the same idempotency key instead of duplicating', async () => {
@@ -460,6 +486,7 @@ describe('GET /api/me authentication', () => {
 
   it('requires a comment when rejecting a request', async () => {
     purchaseRequests.length = 0
+    prisma.outboxEvent.create.mockClear()
     const requesterToken = token({ subject: 'another-requester' })
     const approverToken = token({
       subject: 'approver-id',
@@ -489,6 +516,26 @@ describe('GET /api/me authentication', () => {
       },
     )
     expect(response.status).toBe(400)
+
+    const rejection = await request(
+      approverToken,
+      `purchase-requests/${created.id}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          decision: 'REJECTED',
+          comment: 'Budget unavailable',
+        }),
+      },
+    )
+    expect(rejection.status).toBe(201)
+    expect(prisma.outboxEvent.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventName: 'expense.request.rejected.v1',
+        }),
+      }),
+    )
   })
 
   function request(
@@ -512,6 +559,7 @@ describe('GET /api/me authentication', () => {
       expiresIn?: number
       issuer?: string
       key?: KeyObject
+      email?: string
       name?: string
       roles?: string[]
       subject?: string
@@ -520,6 +568,7 @@ describe('GET /api/me authentication', () => {
     return sign(
       {
         sub: overrides.subject ?? 'test-user',
+        email: overrides.email ?? 'test-user@approvia.dev',
         name: overrides.name,
         realm_access: { roles: overrides.roles ?? ['user'] },
       },

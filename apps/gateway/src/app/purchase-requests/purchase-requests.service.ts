@@ -24,6 +24,7 @@ type TokenUser = {
 type CurrentUser = {
   id: string
   name: string
+  email: string
 }
 
 @Injectable()
@@ -56,11 +57,7 @@ export class PurchaseRequestsService {
     return this.send('expense.approved', { user: this.currentUser(tokenUser) })
   }
 
-  decide(
-    tokenUser: TokenUser,
-    id: string,
-    input: DecidePurchaseRequestDto,
-  ) {
+  decide(tokenUser: TokenUser, id: string, input: DecidePurchaseRequestDto) {
     return this.send('expense.decide', {
       user: this.currentUser(tokenUser),
       id,
@@ -73,7 +70,9 @@ export class PurchaseRequestsService {
       return await firstValueFrom(
         this.expenseClient
           .send({ cmd: command }, payload)
-          .pipe(timeout(Number(process.env.EXPENSE_SERVICE_TIMEOUT_MS ?? 5000))),
+          .pipe(
+            timeout(Number(process.env.EXPENSE_SERVICE_TIMEOUT_MS ?? 5000)),
+          ),
       )
     } catch (error) {
       if (error instanceof TimeoutError) {
@@ -106,6 +105,14 @@ export class PurchaseRequestsService {
       tokenUser.email,
     ].find((value): value is string => typeof value === 'string' && !!value)
 
-    return { id: tokenUser.sub, name: displayName ?? tokenUser.sub }
+    if (typeof tokenUser.email !== 'string' || !tokenUser.email.includes('@')) {
+      throw new UnauthorizedException('Token sem email do usuário')
+    }
+
+    return {
+      id: tokenUser.sub,
+      name: displayName ?? tokenUser.sub,
+      email: tokenUser.email,
+    }
   }
 }

@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { RpcException } from '@nestjs/microservices'
 import {
+  EXPENSE_EVENT_NAMES,
+  ExpenseIntegrationEvent,
+  ExpenseRequestSnapshot,
+} from '@approvia/events'
+import { randomUUID } from 'node:crypto'
+import {
   Prisma,
   PurchaseRequest,
   PurchaseRequestStatus,
@@ -10,6 +16,7 @@ import { PrismaService } from './prisma.service'
 export type ExpenseUser = {
   id: string
   name: string
+  email: string
 }
 
 export type CreateExpenseRequest = {
@@ -44,11 +51,19 @@ export class ExpenseService {
       amountMinor,
       requesterId: user.id,
       requesterName: user.name,
+      requesterEmail: user.email,
       idempotencyKey: key,
     }
 
     try {
-      const request = await this.prisma.purchaseRequest.create({ data })
+      const request = await this.prisma.$transaction(async (transaction) => {
+        const created = await transaction.purchaseRequest.create({ data })
+        await this.writeOutboxEvent(
+          transaction,
+          this.createdEvent(created, randomUUID()),
+        )
+        return created
+      })
       return this.toResponse(request)
     } catch (error) {
       if (key && this.isIdempotencyConflict(error)) {
@@ -133,50 +148,141 @@ export class ExpenseService {
     return requests.map((request) => this.toResponse(request))
   }
 
-  async decide(
-    user: ExpenseUser,
-    id: string,
-    input: DecideExpenseRequest,
-  ) {
-    const request = await this.prisma.purchaseRequest.findUnique({
-      where: { id },
-    })
+  async decide(user: ExpenseUser, id: string, input: DecideExpenseRequest) {
+    const decidedRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        const request = await transaction.purchaseRequest.findUnique({
+          where: { id },
+        })
 
-    if (!request) this.fail(404, 'Solicitação não encontrada')
-    if (request.requesterId === user.id) {
-      this.fail(403, 'Você não pode decidir sua própria solicitação')
-    }
-    if (request.status !== PurchaseRequestStatus.PENDING) {
-      return this.decisionReplay(request, user, input)
-    }
+        if (!request) this.fail(404, 'Solicitação não encontrada')
+        if (request.requesterId === user.id) {
+          this.fail(403, 'Você não pode decidir sua própria solicitação')
+        }
+        if (request.status !== PurchaseRequestStatus.PENDING) {
+          return this.decisionReplay(request, user, input)
+        }
 
-    const comment = input.comment?.trim() || null
-    if (input.decision === 'REJECTED' && !comment) {
-      this.fail(400, 'Informe o motivo da rejeição')
-    }
+        const comment = input.comment?.trim() || null
+        if (input.decision === 'REJECTED' && !comment) {
+          this.fail(400, 'Informe o motivo da rejeição')
+        }
 
-    const result = await this.prisma.purchaseRequest.updateMany({
-      where: { id, status: PurchaseRequestStatus.PENDING },
+        const decidedAt = new Date()
+        const result = await transaction.purchaseRequest.updateMany({
+          where: { id, status: PurchaseRequestStatus.PENDING },
+          data: {
+            status: input.decision,
+            decidedById: user.id,
+            decidedByName: user.name,
+            decisionComment: comment,
+            decidedAt,
+          },
+        })
+
+        if (result.count === 0) {
+          const current = await transaction.purchaseRequest.findUniqueOrThrow({
+            where: { id },
+          })
+          return this.decisionReplay(current, user, input)
+        }
+
+        const decided = await transaction.purchaseRequest.findUniqueOrThrow({
+          where: { id },
+        })
+        if (decided.requesterEmail) {
+          await this.writeOutboxEvent(
+            transaction,
+            this.decidedEvent(
+              decided,
+              user.name,
+              comment,
+              decidedAt,
+              randomUUID(),
+            ),
+          )
+        }
+        return decided
+      },
+    )
+    return this.toResponse(decidedRequest)
+  }
+
+  private createdEvent(
+    request: PurchaseRequest,
+    eventId: string,
+  ): ExpenseIntegrationEvent {
+    return {
+      eventId,
+      eventName: EXPENSE_EVENT_NAMES.created,
+      aggregateId: request.id,
+      correlationId: eventId,
+      occurredAt: request.createdAt.toISOString(),
+      data: { request: this.eventSnapshot(request) },
+    }
+  }
+
+  private decidedEvent(
+    request: PurchaseRequest,
+    decidedByName: string,
+    comment: string | null,
+    decidedAt: Date,
+    eventId: string,
+  ): ExpenseIntegrationEvent {
+    const status =
+      request.status === PurchaseRequestStatus.APPROVED
+        ? ('APPROVED' as const)
+        : ('REJECTED' as const)
+    return {
+      eventId,
+      eventName:
+        status === 'APPROVED'
+          ? EXPENSE_EVENT_NAMES.approved
+          : EXPENSE_EVENT_NAMES.rejected,
+      aggregateId: request.id,
+      correlationId: eventId,
+      occurredAt: decidedAt.toISOString(),
       data: {
-        status: input.decision,
-        decidedById: user.id,
-        decidedByName: user.name,
-        decisionComment: comment,
-        decidedAt: new Date(),
+        request: this.eventSnapshot(request),
+        decision: {
+          status,
+          decidedByName,
+          comment,
+          decidedAt: decidedAt.toISOString(),
+        },
+      },
+    }
+  }
+
+  private eventSnapshot(request: PurchaseRequest): ExpenseRequestSnapshot {
+    if (!request.requesterEmail) {
+      this.fail(422, 'Solicitação sem email do solicitante')
+    }
+    return {
+      id: request.id,
+      title: request.title,
+      amountMinor: request.amountMinor,
+      currency: request.currency,
+      requesterId: request.requesterId,
+      requesterName: request.requesterName,
+      requesterEmail: request.requesterEmail,
+      createdAt: request.createdAt.toISOString(),
+    }
+  }
+
+  private async writeOutboxEvent(
+    transaction: Prisma.TransactionClient,
+    event: ExpenseIntegrationEvent,
+  ) {
+    await transaction.outboxEvent.create({
+      data: {
+        id: event.eventId,
+        eventName: event.eventName,
+        aggregateId: event.aggregateId,
+        payload: event as unknown as Prisma.InputJsonValue,
+        occurredAt: new Date(event.occurredAt),
       },
     })
-
-    if (result.count === 0) {
-      const current = await this.prisma.purchaseRequest.findUniqueOrThrow({
-        where: { id },
-      })
-      return this.decisionReplay(current, user, input)
-    }
-
-    const decidedRequest = await this.prisma.purchaseRequest.findUniqueOrThrow({
-      where: { id },
-    })
-    return this.toResponse(decidedRequest)
   }
 
   // Sob entrega at-least-once, repetir a mesma decisão do mesmo aprovador
@@ -186,9 +292,9 @@ export class ExpenseService {
     request: PurchaseRequest,
     user: ExpenseUser,
     input: DecideExpenseRequest,
-  ) {
+  ): PurchaseRequest {
     if (request.decidedById === user.id && request.status === input.decision) {
-      return this.toResponse(request)
+      return request
     }
     this.fail(409, 'A solicitação já foi decidida')
   }

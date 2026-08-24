@@ -37,6 +37,16 @@
       "enabled": true,
       "protocol": "openid-connect",
       "bearerOnly": true
+    },
+    {
+      "clientId": "notifications",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "notifications-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -53,6 +63,18 @@
       "realmRoles": ["user"]
     },
     {
+      "username": "diego.peter@pitang.com",
+      "email": "diego.peter@pitang.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Diego",
+      "lastName": "Luna",
+      "credentials": [
+        { "type": "password", "value": "password123", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    },
+    {
       "username": "approver@approvia.dev",
       "email": "approver@approvia.dev",
       "emailVerified": true,
@@ -63,6 +85,14 @@
         { "type": "password", "value": "password123", "temporary": false }
       ],
       "realmRoles": ["user", "approver"]
+    },
+    {
+      "username": "service-account-notifications",
+      "enabled": true,
+      "serviceAccountClientId": "notifications",
+      "clientRoles": {
+        "realm-management": ["query-users", "view-realm", "view-users"]
+      }
     }
   ]
 }
