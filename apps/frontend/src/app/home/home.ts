@@ -20,7 +20,13 @@ import { AuthService } from '../auth/auth.service'
 import {
   PurchaseRequest,
   PurchaseRequestsService,
+  RequestActivity,
 } from '../purchase-requests/purchase-requests.service'
+import {
+  activityLabel,
+  decisionConflictMessage,
+  statusLabel,
+} from '../purchase-requests/purchase-request-view'
 
 @Component({
   selector: 'app-home',
@@ -201,9 +207,10 @@ export class Home {
         undefined,
         { duration: 3000 },
       )
-    } catch {
+    } catch (error) {
       this.pageError.set(
-        'Não foi possível atualizar a solicitação. Ela pode já ter sido analisada.',
+        decisionConflictMessage(error) ??
+          'Não foi possível atualizar a solicitação. Ela pode já ter sido analisada.',
       )
       await this.load()
     } finally {
@@ -212,11 +219,11 @@ export class Home {
   }
 
   statusLabel(status: PurchaseRequest['status']): string {
-    return {
-      PENDING: 'Pendente',
-      APPROVED: 'Aprovada',
-      REJECTED: 'Rejeitada',
-    }[status]
+    return statusLabel(status)
+  }
+
+  activityLabel(activity: RequestActivity): string {
+    return activityLabel(activity)
   }
 
   logout() {

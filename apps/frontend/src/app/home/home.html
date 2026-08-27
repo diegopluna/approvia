@@ -59,6 +59,9 @@
                     <mat-card-title>{{ request.title }}</mat-card-title>
                     <mat-card-subtitle>
                       {{ request.requesterName }} · {{ request.createdAt | date: 'dd/MM/yyyy HH:mm' }}
+                      @if (request.decisionDeadlineAt) {
+                        · Prazo: {{ request.decisionDeadlineAt | date: 'dd/MM/yyyy HH:mm' }}
+                      }
                     </mat-card-subtitle>
                   </mat-card-header>
                   <mat-card-content>
@@ -230,6 +233,8 @@
                         [class.text-green-900]="request.status === 'APPROVED'"
                         [class.bg-red-100]="request.status === 'REJECTED'"
                         [class.text-red-900]="request.status === 'REJECTED'"
+                        [class.bg-neutral-200]="request.status === 'EXPIRED'"
+                        [class.text-neutral-700]="request.status === 'EXPIRED'"
                       >
                         {{ statusLabel(request.status) }}
                       </span>
@@ -243,11 +248,32 @@
                     <p class="mb-0 mt-1 whitespace-nowrap text-xs text-neutral-500">
                       {{ request.createdAt | date: 'dd/MM/yyyy HH:mm' }}
                     </p>
+                    @if (request.status === 'PENDING' && request.decisionDeadlineAt) {
+                      <p class="mb-0 mt-1 whitespace-nowrap text-xs text-amber-800">
+                        Prazo para decisão: {{ request.decisionDeadlineAt | date: 'dd/MM/yyyy HH:mm' }}
+                      </p>
+                    }
+                    @if (request.status === 'EXPIRED' && request.expiredAt) {
+                      <p class="mb-0 mt-1 whitespace-nowrap text-xs text-neutral-500">
+                        Expirada em {{ request.expiredAt | date: 'dd/MM/yyyy HH:mm' }}
+                      </p>
+                    }
                   </div>
                 </div>
                 @if (request.decisionComment) {
                   <div class="my-4"><mat-divider></mat-divider></div>
                   <p class="m-0 text-sm text-neutral-700"><strong>Motivo:</strong> {{ request.decisionComment }}</p>
+                }
+                @if (request.activities.length > 0) {
+                  <div class="my-4"><mat-divider></mat-divider></div>
+                  <p class="m-0 text-sm font-medium text-neutral-900">Histórico</p>
+                  <ul class="mb-0 mt-2 list-none space-y-1 p-0">
+                    @for (activity of request.activities; track activity.occurredAt + activity.kind) {
+                      <li class="text-sm text-neutral-600">
+                        {{ activity.occurredAt | date: 'dd/MM/yyyy HH:mm' }} — {{ activityLabel(activity) }}
+                      </li>
+                    }
+                  </ul>
                 }
               </mat-card-content>
             </mat-card>

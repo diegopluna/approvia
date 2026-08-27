@@ -87,6 +87,18 @@ export class PurchaseRequestsService {
         'message' in error &&
         typeof error.message === 'string'
       ) {
+        const code =
+          'code' in error && typeof error.code === 'string' ? error.code : null
+        if (code) {
+          throw new HttpException(
+            {
+              statusCode: error.statusCode,
+              message: error.message,
+              code,
+            },
+            error.statusCode,
+          )
+        }
         throw new HttpException(error.message, error.statusCode)
       }
 

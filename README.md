@@ -40,6 +40,16 @@ business rules. RabbitMQ management is available at `http://localhost:15672`
 with the local `approvia` / `approvia` credentials. Email is captured by Mailpit
 over SMTP port `1026` and displayed at `http://localhost:8025`.
 
+Every request receives a decision deadline (default 5 days). Pending requests
+trigger reminder emails to approvers (first after 24h, then daily) and expire
+automatically at the deadline; expired requests cannot be decided and the
+requester is notified to resubmit if still needed. The durable timers run on a
+self-hosted Temporal server (`localhost:7233`, UI at `http://localhost:8233`).
+Tune the schedule with `APPROVAL_DECISION_TTL_HOURS`,
+`APPROVAL_REMINDER_DELAY_HOURS`, and `APPROVAL_REMINDER_INTERVAL_HOURS`
+(fractional hours work for local validation), and disable the worker with
+`WORKFLOWS_ENABLED=false`. See `docs/durable-workflows.md` for the design.
+
 If port `5433` is already used, choose another host port and use the same port
 in the expense service database URL:
 

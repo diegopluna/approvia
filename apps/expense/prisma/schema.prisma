@@ -12,6 +12,12 @@ enum PurchaseRequestStatus {
   PENDING
   APPROVED
   REJECTED
+  EXPIRED
+}
+
+enum RequestActivityKind {
+  REMINDER_SENT
+  EXPIRED
 }
 
 model PurchaseRequest {
@@ -30,11 +36,28 @@ model PurchaseRequest {
   decisionComment   String?               @map("decision_comment") @db.VarChar(1000)
   decidedAt         DateTime?             @map("decided_at") @db.Timestamptz(3)
   idempotencyKey    String?               @map("idempotency_key") @db.VarChar(255)
+  decisionDeadlineAt DateTime?            @map("decision_deadline_at") @db.Timestamptz(3)
+  expiredAt         DateTime?             @map("expired_at") @db.Timestamptz(3)
+  activities        RequestActivity[]
 
   @@unique([requesterId, idempotencyKey])
   @@index([requesterId, createdAt])
   @@index([status, createdAt])
   @@map("purchase_requests")
+}
+
+model RequestActivity {
+  id         String              @id @default(uuid()) @db.Uuid
+  requestId  String              @map("request_id") @db.Uuid
+  request    PurchaseRequest     @relation(fields: [requestId], references: [id])
+  kind       RequestActivityKind
+  occurrence Int?
+  details    Json?
+  occurredAt DateTime            @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@unique([requestId, kind, occurrence])
+  @@index([requestId, occurredAt])
+  @@map("request_activities")
 }
 
 model OutboxEvent {

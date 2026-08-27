@@ -1,8 +1,21 @@
+import { v5 as uuidv5 } from 'uuid'
+
 export const EXPENSE_EVENT_NAMES = {
   created: 'expense.request.created.v1',
   approved: 'expense.request.approved.v1',
   rejected: 'expense.request.rejected.v1',
+  reminder: 'expense.request.reminder.v1',
+  expired: 'expense.request.expired.v1',
 } as const
+
+// Namespace fixo para ids determinísticos: a mesma semente (ex.:
+// "<requestId>:reminder:1") sempre gera o mesmo eventId, permitindo dedupe
+// fim a fim nas entregas de email mesmo sob retentativas do produtor.
+const EVENT_ID_NAMESPACE = 'aa63a5b3-8f5b-4f7e-9f3a-2d1c67e0a9d4'
+
+export function deterministicEventId(seed: string): string {
+  return uuidv5(seed, EVENT_ID_NAMESPACE)
+}
 
 export const APPLICATION_EVENTS_EXCHANGE = 'approvia.events'
 
@@ -18,6 +31,8 @@ export type ExpenseRequestSnapshot = {
   requesterName: string
   requesterEmail: string
   createdAt: string
+  // Opcional para compatibilidade com eventos anteriores ao prazo de decisão.
+  decisionDeadlineAt?: string | null
 }
 
 export type ExpenseRequestCreatedEvent = {
@@ -50,9 +65,41 @@ export type ExpenseRequestDecidedEvent = {
   }
 }
 
+export type ExpenseRequestReminderEvent = {
+  eventId: string
+  eventName: typeof EXPENSE_EVENT_NAMES.reminder
+  occurredAt: string
+  aggregateId: string
+  correlationId: string
+  data: {
+    request: ExpenseRequestSnapshot
+    reminder: {
+      occurrence: number
+      decisionDeadlineAt: string
+    }
+  }
+}
+
+export type ExpenseRequestExpiredEvent = {
+  eventId: string
+  eventName: typeof EXPENSE_EVENT_NAMES.expired
+  occurredAt: string
+  aggregateId: string
+  correlationId: string
+  data: {
+    request: ExpenseRequestSnapshot
+    expiry: {
+      decisionDeadlineAt: string
+      expiredAt: string
+    }
+  }
+}
+
 export type ExpenseIntegrationEvent =
   | ExpenseRequestCreatedEvent
   | ExpenseRequestDecidedEvent
+  | ExpenseRequestReminderEvent
+  | ExpenseRequestExpiredEvent
 
 export function parseExpenseIntegrationEvent(
   value: unknown,
@@ -79,6 +126,41 @@ export function parseExpenseIntegrationEvent(
   if (eventName === EXPENSE_EVENT_NAMES.created) {
     return { ...base, eventName, data: { request } }
   }
+
+  if (eventName === EXPENSE_EVENT_NAMES.reminder) {
+    const reminder = requiredRecord(data, 'reminder')
+    const occurrence = reminder['occurrence']
+    if (!Number.isInteger(occurrence) || (occurrence as number) < 1) {
+      throw new Error('Reminder occurrence is invalid')
+    }
+    return {
+      ...base,
+      eventName,
+      data: {
+        request,
+        reminder: {
+          occurrence: occurrence as number,
+          decisionDeadlineAt: requiredDate(reminder, 'decisionDeadlineAt'),
+        },
+      },
+    }
+  }
+
+  if (eventName === EXPENSE_EVENT_NAMES.expired) {
+    const expiry = requiredRecord(data, 'expiry')
+    return {
+      ...base,
+      eventName,
+      data: {
+        request,
+        expiry: {
+          decisionDeadlineAt: requiredDate(expiry, 'decisionDeadlineAt'),
+          expiredAt: requiredDate(expiry, 'expiredAt'),
+        },
+      },
+    }
+  }
+
   if (
     eventName !== EXPENSE_EVENT_NAMES.approved &&
     eventName !== EXPENSE_EVENT_NAMES.rejected
@@ -123,6 +205,14 @@ function parseRequest(value: Record<string, unknown>): ExpenseRequestSnapshot {
   if (!requesterEmail.includes('@'))
     throw new Error('Requester email is invalid')
 
+  const decisionDeadlineAt = optionalString(value, 'decisionDeadlineAt')
+  if (
+    decisionDeadlineAt !== null &&
+    Number.isNaN(Date.parse(decisionDeadlineAt))
+  ) {
+    throw new Error('decisionDeadlineAt is invalid')
+  }
+
   return {
     id: requiredString(value, 'id'),
     title: requiredString(value, 'title'),
@@ -132,6 +222,7 @@ function parseRequest(value: Record<string, unknown>): ExpenseRequestSnapshot {
     requesterName: requiredString(value, 'requesterName'),
     requesterEmail,
     createdAt: requiredDate(value, 'createdAt'),
+    ...(decisionDeadlineAt !== null ? { decisionDeadlineAt } : {}),
   }
 }
 

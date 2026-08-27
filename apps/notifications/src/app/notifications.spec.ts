@@ -60,6 +60,51 @@ describe('EmailTemplateService', () => {
     expect(rendered.template).toBe('expense-request-rejected')
     expect(rendered.text).toContain('Budget unavailable')
   })
+
+  it('renders the approver reminder with occurrence and deadline', () => {
+    const reminder: ExpenseIntegrationEvent = {
+      ...event,
+      eventName: EXPENSE_EVENT_NAMES.reminder,
+      data: {
+        ...event.data,
+        reminder: {
+          occurrence: 2,
+          decisionDeadlineAt: '2026-08-04T10:00:00.000Z',
+        },
+      },
+    }
+
+    const rendered = new EmailTemplateService().render(reminder)
+
+    expect(rendered.template).toBe('approver-reminder')
+    expect(rendered.templateVersion).toBe(1)
+    expect(rendered.subject).toContain('Lembrete')
+    expect(rendered.text).toContain('Lembrete 2')
+    expect(rendered.text).toContain('1.499,90')
+    expect(rendered.text).toContain('Prazo para decisão')
+  })
+
+  it('renders the requester expiry notice', () => {
+    const expired: ExpenseIntegrationEvent = {
+      ...event,
+      eventName: EXPENSE_EVENT_NAMES.expired,
+      data: {
+        ...event.data,
+        expiry: {
+          decisionDeadlineAt: '2026-08-04T10:00:00.000Z',
+          expiredAt: '2026-08-04T10:00:03.000Z',
+        },
+      },
+    }
+
+    const rendered = new EmailTemplateService().render(expired)
+
+    expect(rendered.template).toBe('requester-expired')
+    expect(rendered.templateVersion).toBe(1)
+    expect(rendered.subject).toContain('expirou')
+    expect(rendered.text).toContain('expirou em')
+    expect(rendered.text).toContain('envie uma nova solicitação')
+  })
 })
 
 describe('EmailDeliveryService', () => {
@@ -122,6 +167,54 @@ describe('EmailDeliveryService', () => {
     expect(provider.send).not.toHaveBeenCalled()
     expect(prisma.emailDelivery.updateMany).not.toHaveBeenCalled()
     expect(prisma.emailDelivery.update).not.toHaveBeenCalled()
+  })
+
+  it('deduplicates a redelivered reminder by its deterministic event id', async () => {
+    const reminder: ExpenseIntegrationEvent = {
+      ...event,
+      eventName: EXPENSE_EVENT_NAMES.reminder,
+      data: {
+        ...event.data,
+        reminder: {
+          occurrence: 1,
+          decisionDeadlineAt: '2026-08-04T10:00:00.000Z',
+        },
+      },
+    }
+    const provider: EmailProvider = { send: vi.fn() }
+    // Reentrega: o upsert encontra a entrega já enviada da primeira tentativa
+    // (mesma unique eventId+recipient+template+versão) e nada é reenviado.
+    const prisma = {
+      emailDelivery: {
+        upsert: vi.fn().mockResolvedValue({
+          id: 'delivery-id',
+          status: EmailDeliveryStatus.SENT,
+        }),
+        updateMany: vi.fn(),
+        update: vi.fn(),
+      },
+    }
+    const service = new EmailDeliveryService(
+      prisma as never,
+      new EmailTemplateService(),
+      provider,
+    )
+
+    await service.deliver(reminder, 'approver@approvia.dev')
+
+    expect(prisma.emailDelivery.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          eventId_recipient_template_templateVersion: {
+            eventId: reminder.eventId,
+            recipient: 'approver@approvia.dev',
+            template: 'approver-reminder',
+            templateVersion: 1,
+          },
+        },
+      }),
+    )
+    expect(provider.send).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { RpcException } from '@nestjs/microservices'
 import {
+  deterministicEventId,
   EXPENSE_EVENT_NAMES,
   ExpenseIntegrationEvent,
   ExpenseRequestSnapshot,
@@ -10,8 +11,15 @@ import {
   Prisma,
   PurchaseRequest,
   PurchaseRequestStatus,
+  RequestActivity,
+  RequestActivityKind,
 } from '../generated/prisma/client'
 import { PrismaService } from './prisma.service'
+import { decisionTtlMs } from './workflows/workflow.config'
+
+type PurchaseRequestWithActivities = PurchaseRequest & {
+  activities?: RequestActivity[]
+}
 
 export type ExpenseUser = {
   id: string
@@ -45,6 +53,7 @@ export class ExpenseService {
     }
 
     const key = idempotencyKey?.trim() || null
+    const now = new Date()
     const data = {
       title: input.title.trim(),
       justification: input.justification.trim(),
@@ -53,6 +62,8 @@ export class ExpenseService {
       requesterName: user.name,
       requesterEmail: user.email,
       idempotencyKey: key,
+      createdAt: now,
+      decisionDeadlineAt: new Date(now.getTime() + decisionTtlMs()),
     }
 
     try {
@@ -119,6 +130,7 @@ export class ExpenseService {
     const requests = await this.prisma.purchaseRequest.findMany({
       where: { requesterId: user.id },
       orderBy: { createdAt: 'desc' },
+      include: { activities: { orderBy: { occurredAt: 'asc' } } },
     })
 
     return requests.map((request) => this.toResponse(request))
@@ -208,6 +220,129 @@ export class ExpenseService {
     return this.toResponse(decidedRequest)
   }
 
+  // Comando idempotente disparado pela activity de lembrete: efeito no máximo
+  // uma vez por ocorrência, garantido pela unique (requestId, kind, occurrence)
+  // e pelo eventId determinístico que colide com o dedupe das entregas.
+  async recordReminder(requestId: string, occurrence: number) {
+    await this.prisma.$transaction(async (transaction) => {
+      const request = await transaction.purchaseRequest.findUnique({
+        where: { id: requestId },
+      })
+      if (
+        !request ||
+        request.status !== PurchaseRequestStatus.PENDING ||
+        !request.decisionDeadlineAt
+      ) {
+        return
+      }
+
+      const existing = await transaction.requestActivity.findUnique({
+        where: {
+          requestId_kind_occurrence: {
+            requestId,
+            kind: RequestActivityKind.REMINDER_SENT,
+            occurrence,
+          },
+        },
+      })
+      if (existing) return
+
+      await transaction.requestActivity.create({
+        data: {
+          requestId,
+          kind: RequestActivityKind.REMINDER_SENT,
+          occurrence,
+        },
+      })
+
+      if (!request.requesterEmail) {
+        // Solicitações geridas pelo workflow sempre têm email; guarda
+        // defensiva para não derrubar a activity com um snapshot inválido.
+        return
+      }
+      await this.writeOutboxEvent(
+        transaction,
+        this.reminderEvent(request, occurrence, request.decisionDeadlineAt),
+      )
+    })
+  }
+
+  // Transição PENDING → EXPIRED disparada pelo workflow no prazo: a decisão
+  // registrada primeiro sempre vence (updateMany condicional, 0 linhas = no-op).
+  async expireRequest(requestId: string) {
+    await this.prisma.$transaction(async (transaction) => {
+      const expiredAt = new Date()
+      const result = await transaction.purchaseRequest.updateMany({
+        where: { id: requestId, status: PurchaseRequestStatus.PENDING },
+        data: { status: PurchaseRequestStatus.EXPIRED, expiredAt },
+      })
+      if (result.count === 0) return
+
+      await transaction.requestActivity.create({
+        data: { requestId, kind: RequestActivityKind.EXPIRED },
+      })
+
+      const request = await transaction.purchaseRequest.findUniqueOrThrow({
+        where: { id: requestId },
+      })
+      if (!request.requesterEmail) return
+      await this.writeOutboxEvent(
+        transaction,
+        this.expiredEvent(
+          request,
+          request.decisionDeadlineAt ?? expiredAt,
+          expiredAt,
+        ),
+      )
+    })
+  }
+
+  private reminderEvent(
+    request: PurchaseRequest,
+    occurrence: number,
+    decisionDeadlineAt: Date,
+  ): ExpenseIntegrationEvent {
+    const eventId = deterministicEventId(
+      `${request.id}:reminder:${occurrence}`,
+    )
+    return {
+      eventId,
+      eventName: EXPENSE_EVENT_NAMES.reminder,
+      aggregateId: request.id,
+      correlationId: eventId,
+      occurredAt: new Date().toISOString(),
+      data: {
+        request: this.eventSnapshot(request),
+        reminder: {
+          occurrence,
+          decisionDeadlineAt: decisionDeadlineAt.toISOString(),
+        },
+      },
+    }
+  }
+
+  private expiredEvent(
+    request: PurchaseRequest,
+    decisionDeadlineAt: Date,
+    expiredAt: Date,
+  ): ExpenseIntegrationEvent {
+    const eventId = deterministicEventId(`${request.id}:expired`)
+    return {
+      eventId,
+      eventName: EXPENSE_EVENT_NAMES.expired,
+      aggregateId: request.id,
+      correlationId: eventId,
+      occurredAt: expiredAt.toISOString(),
+      data: {
+        request: this.eventSnapshot(request),
+        expiry: {
+          decisionDeadlineAt: decisionDeadlineAt.toISOString(),
+          expiredAt: expiredAt.toISOString(),
+        },
+      },
+    }
+  }
+
   private createdEvent(
     request: PurchaseRequest,
     eventId: string,
@@ -267,6 +402,9 @@ export class ExpenseService {
       requesterName: request.requesterName,
       requesterEmail: request.requesterEmail,
       createdAt: request.createdAt.toISOString(),
+      ...(request.decisionDeadlineAt
+        ? { decisionDeadlineAt: request.decisionDeadlineAt.toISOString() }
+        : {}),
     }
   }
 
@@ -293,10 +431,24 @@ export class ExpenseService {
     user: ExpenseUser,
     input: DecideExpenseRequest,
   ): PurchaseRequest {
+    if (request.status === PurchaseRequestStatus.EXPIRED) {
+      const expiredOn = (request.expiredAt ?? new Date()).toLocaleDateString(
+        'pt-BR',
+      )
+      this.fail(
+        409,
+        `A solicitação expirou em ${expiredOn} e não pode mais ser decidida`,
+        'REQUEST_NOT_PENDING',
+      )
+    }
     if (request.decidedById === user.id && request.status === input.decision) {
       return request
     }
-    this.fail(409, 'A solicitação já foi decidida')
+    this.fail(
+      409,
+      'A solicitação já foi aprovada ou rejeitada',
+      'REQUEST_NOT_PENDING',
+    )
   }
 
   private toMinorUnits(amount: string): number {
@@ -304,7 +456,7 @@ export class ExpenseService {
     return Number(whole) * 100 + Number(decimal.padEnd(2, '0'))
   }
 
-  private toResponse(request: PurchaseRequest) {
+  private toResponse(request: PurchaseRequestWithActivities) {
     return {
       id: request.id,
       title: request.title,
@@ -317,10 +469,17 @@ export class ExpenseService {
       decidedByName: request.decidedByName,
       decisionComment: request.decisionComment,
       decidedAt: request.decidedAt,
+      decisionDeadlineAt: request.decisionDeadlineAt ?? null,
+      expiredAt: request.expiredAt ?? null,
+      activities: (request.activities ?? []).map((activity) => ({
+        kind: activity.kind,
+        occurrence: activity.occurrence,
+        occurredAt: activity.occurredAt,
+      })),
     }
   }
 
-  private fail(statusCode: number, message: string): never {
-    throw new RpcException({ statusCode, message })
+  private fail(statusCode: number, message: string, code?: string): never {
+    throw new RpcException({ statusCode, message, ...(code ? { code } : {}) })
   }
 }

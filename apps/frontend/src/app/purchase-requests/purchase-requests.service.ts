@@ -1,7 +1,17 @@
 import { HttpClient } from '@angular/common/http'
 import { inject, Injectable } from '@angular/core'
 
-export type PurchaseRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type PurchaseRequestStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'EXPIRED'
+
+export type RequestActivity = {
+  kind: 'REMINDER_SENT' | 'EXPIRED'
+  occurrence: number | null
+  occurredAt: string
+}
 
 export type PurchaseRequest = {
   id: string
@@ -15,6 +25,9 @@ export type PurchaseRequest = {
   decidedByName: string | null
   decisionComment: string | null
   decidedAt: string | null
+  decisionDeadlineAt: string | null
+  expiredAt: string | null
+  activities: RequestActivity[]
 }
 
 export type NewPurchaseRequest = {

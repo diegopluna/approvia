@@ -5,6 +5,8 @@ import { ExpenseService } from './expense.service'
 import { PrismaService } from './prisma.service'
 import { RmqAckInterceptor } from './rmq-ack.interceptor'
 import { OutboxPublisher } from './outbox.publisher'
+import { LifecycleConsumer } from './workflows/lifecycle.consumer'
+import { WorkflowWorker } from './workflows/workflow.worker'
 
 @Module({
   controllers: [ExpenseController],
@@ -12,6 +14,8 @@ import { OutboxPublisher } from './outbox.publisher'
     ExpenseService,
     PrismaService,
     OutboxPublisher,
+    LifecycleConsumer,
+    WorkflowWorker,
     { provide: APP_INTERCEPTOR, useClass: RmqAckInterceptor },
   ],
 })
