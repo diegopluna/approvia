@@ -137,10 +137,22 @@ export class NotificationsConsumer
   private async resolveRecipients(
     event: ExpenseIntegrationEvent,
   ): Promise<string[]> {
-    if (event.eventName === EXPENSE_EVENT_NAMES.created) {
+    // Aprovadores elegíveis no momento do envio (mesma regra do created).
+    if (
+      event.eventName === EXPENSE_EVENT_NAMES.created ||
+      event.eventName === EXPENSE_EVENT_NAMES.reminder
+    ) {
       return (await this.recipients.approvers()).map(({ email }) => email)
     }
-    return [event.data.request.requesterEmail]
+    const requesterEmail = event.data.request.requesterEmail?.trim()
+    if (!requesterEmail) {
+      // Sem destinatário não há entrega possível; caso tratado, não erro.
+      this.logger.warn(
+        `Event ${event.eventId} has no requester email; skipping delivery`,
+      )
+      return []
+    }
+    return [requesterEmail]
   }
 
   private async retry(message: ConsumeMessage, error: string) {

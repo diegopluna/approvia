@@ -77,6 +77,8 @@ describe('GET /api/me authentication', () => {
             decisionComment: null,
             decidedAt: null,
             idempotencyKey: data.idempotencyKey ?? null,
+            decisionDeadlineAt: data.decisionDeadlineAt ?? null,
+            expiredAt: null,
           }
           purchaseRequests.push(request)
           return request
@@ -197,6 +199,7 @@ describe('GET /api/me authentication', () => {
     process.env.EXPENSE_SERVICE_QUEUE = expenseQueue
     process.env.EXPENSE_SERVICE_QUEUE_DURABLE = 'false'
     process.env.OUTBOX_PUBLISHER_ENABLED = 'false'
+    process.env.WORKFLOWS_ENABLED = 'false'
 
     const expenseModuleRef = await Test.createTestingModule({
       imports: [ExpenseModule],
@@ -482,6 +485,59 @@ describe('GET /api/me authentication', () => {
       headers: { 'idempotency-key': 'short' },
     })
     expect(invalidKey.status).toBe(400)
+  })
+
+  it('refuses decisions on an expired request with REQUEST_NOT_PENDING', async () => {
+    purchaseRequests.length = 0
+    const requesterToken = token({
+      subject: 'requester-id',
+      name: 'Test Requester',
+    })
+    const approverToken = token({
+      subject: 'approver-id',
+      name: 'Alex Approver',
+      roles: ['user', 'approver'],
+    })
+
+    const createResponse = await request(requesterToken, 'purchase-requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Expired laptop',
+        amount: '4500.00',
+        justification: 'Workstation replacement.',
+      }),
+    })
+    expect(createResponse.status).toBe(201)
+    const created = (await createResponse.json()) as {
+      id: string
+      decisionDeadlineAt: string | null
+    }
+    expect(created.decisionDeadlineAt).toBeTruthy()
+
+    // Expira direto no armazenamento (mesmo efeito da transição do workflow);
+    // nenhum endpoint de teste é adicionado para isso.
+    const stored = purchaseRequests.find((item) => item.id === created.id)
+    if (!stored) throw new Error('request not stored')
+    stored.status = PurchaseRequestStatus.EXPIRED
+    stored.expiredAt = new Date('2026-08-29T12:00:00.000Z')
+
+    const decision = await request(
+      approverToken,
+      `purchase-requests/${created.id}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision: 'APPROVED' }),
+      },
+    )
+    expect(decision.status).toBe(409)
+    expect(await decision.json()).toMatchObject({
+      code: 'REQUEST_NOT_PENDING',
+    })
+
+    const mine = await request(requesterToken, 'purchase-requests/mine')
+    expect(await mine.json()).toMatchObject([
+      { id: created.id, status: 'EXPIRED' },
+    ])
   })
 
   it('requires a comment when rejecting a request', async () => {

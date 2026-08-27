@@ -9,6 +9,7 @@ allowBuilds:
   msgpackr-extract: true
   nx: true
   prisma: true
+  protobufjs: true
   unrs-resolver: true
 overrides:
   fast-uri: ^3.1.4

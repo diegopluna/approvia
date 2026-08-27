@@ -42,6 +42,30 @@ services:
       timeout: 5s
       retries: 12
 
+  temporal:
+    image: temporalio/auto-setup:1.28
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: '5432'
+      POSTGRES_USER: approvia
+      POSTGRES_PWD: approvia
+      POSTGRES_SEEDS: database
+    ports:
+      - '${TEMPORAL_PORT:-7233}:7233'
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - '${TEMPORAL_UI_PORT:-8233}:8080'
+
   mailpit:
     image: axllent/mailpit:v1.27
     ports:

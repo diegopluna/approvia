@@ -27,6 +27,13 @@
         "command": "pnpm expense:db:generate"
       }
     },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["generate-prisma"],
+      "options": {
+        "command": "vitest run --config apps/expense/vitest.config.ts"
+      }
+    },
     "serve": {
       "continuous": true,
       "executor": "@nx/js:node",

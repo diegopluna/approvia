@@ -46,6 +46,73 @@ export class EmailTemplateService {
       }
     }
 
+    if (event.eventName === EXPENSE_EVENT_NAMES.reminder) {
+      const reminder = event.data.reminder
+      const deadline = new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+        timeZone: 'America/Sao_Paulo',
+      }).format(new Date(reminder.decisionDeadlineAt))
+      const subject = `Lembrete: solicitação aguardando decisão: ${request.title}`
+      const text = [
+        `Lembrete ${reminder.occurrence}: uma solicitação continua aguardando decisão.`,
+        `Solicitante: ${request.requesterName}`,
+        `Título: ${request.title}`,
+        `Valor: ${amount}`,
+        `Prazo para decisão: ${deadline}`,
+        `Acessar: ${requestUrl}`,
+      ].join('\n')
+      return {
+        template: 'approver-reminder',
+        templateVersion: 1,
+        subject,
+        text,
+        html: this.layout(
+          subject,
+          `<p>Lembrete ${reminder.occurrence}: uma solicitação continua aguardando decisão.</p>
+           <p><strong>Solicitante:</strong> ${escapeHtml(request.requesterName)}<br>
+           <strong>Título:</strong> ${escapeHtml(request.title)}<br>
+           <strong>Valor:</strong> ${escapeHtml(amount)}<br>
+           <strong>Prazo para decisão:</strong> ${escapeHtml(deadline)}</p>
+           <p>Sem decisão até o prazo, a solicitação expira automaticamente.</p>
+           <p><a href="${escapeHtml(requestUrl)}">Acessar o Approvia</a></p>`,
+        ),
+        data: { request, reminder, amount },
+      }
+    }
+
+    if (event.eventName === EXPENSE_EVENT_NAMES.expired) {
+      const expiry = event.data.expiry
+      const expiredOn = new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+        timeZone: 'America/Sao_Paulo',
+      }).format(new Date(expiry.expiredAt))
+      const subject = `Sua solicitação expirou sem decisão: ${request.title}`
+      const text = [
+        `Olá, ${request.requesterName}.`,
+        `Sua solicitação "${request.title}" expirou em ${expiredOn} sem uma decisão.`,
+        `Valor: ${amount}`,
+        'Se a compra ainda for necessária, envie uma nova solicitação.',
+        `Acessar: ${requestUrl}`,
+      ].join('\n')
+      return {
+        template: 'requester-expired',
+        templateVersion: 1,
+        subject,
+        text,
+        html: this.layout(
+          subject,
+          `<p>Olá, ${escapeHtml(request.requesterName)}.</p>
+           <p>Sua solicitação <strong>${escapeHtml(request.title)}</strong> expirou em ${escapeHtml(expiredOn)} sem uma decisão.</p>
+           <p><strong>Valor:</strong> ${escapeHtml(amount)}</p>
+           <p>Se a compra ainda for necessária, envie uma nova solicitação.</p>
+           <p><a href="${escapeHtml(requestUrl)}">Acessar o Approvia</a></p>`,
+        ),
+        data: { request, expiry, amount },
+      }
+    }
+
     const approved = event.eventName === EXPENSE_EVENT_NAMES.approved
     const statusLabel = approved ? 'aprovada' : 'rejeitada'
     const subject = `Sua solicitação foi ${statusLabel}: ${request.title}`
