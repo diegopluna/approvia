@@ -1,10 +1,46 @@
 import { Module } from '@nestjs/common'
+import { PassportModule } from '@nestjs/passport'
+import { ClientsModule, Transport } from '@nestjs/microservices'
 import { AppController } from './app.controller'
-import { AppService } from './app.service'
+import { JwtStrategy } from './jwt.strategy'
+import { RealmRoleGuard } from './realm-role.guard'
+import { ApproverRoleGuard } from './approver-role.guard'
+import { PurchaseRequestsController } from './purchase-requests/purchase-requests.controller'
+import { PurchaseRequestsService } from './purchase-requests/purchase-requests.service'
+import { RequesterRoleGuard } from './requester-role.guard'
+import { EXPENSE_SERVICE } from './expense-client'
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    PassportModule,
+    ClientsModule.registerAsync([
+      {
+        name: EXPENSE_SERVICE,
+        useFactory: () => ({
+          transport: Transport.RMQ,
+          options: {
+            urls: [
+              process.env.RABBITMQ_URL ??
+                'amqp://approvia:approvia@localhost:5672',
+            ],
+            queue: process.env.EXPENSE_SERVICE_QUEUE ?? 'expense',
+            queueOptions: {
+              durable: process.env.EXPENSE_SERVICE_QUEUE_DURABLE !== 'false',
+              autoDelete: process.env.EXPENSE_SERVICE_QUEUE_DURABLE === 'false',
+            },
+            persistent: true,
+          },
+        }),
+      },
+    ]),
+  ],
+  controllers: [AppController, PurchaseRequestsController],
+  providers: [
+    JwtStrategy,
+    RealmRoleGuard,
+    ApproverRoleGuard,
+    RequesterRoleGuard,
+    PurchaseRequestsService,
+  ],
 })
 export class AppModule {}

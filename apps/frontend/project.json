@@ -19,7 +19,10 @@
             "input": "apps/frontend/public"
           }
         ],
-        "styles": ["apps/frontend/src/styles.css"]
+        "styles": [
+          "apps/frontend/src/material-theme.scss",
+          "apps/frontend/src/styles.css"
+        ]
       },
       "configurations": {
         "production": {
@@ -60,6 +63,12 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --config apps/frontend/vitest.config.ts"
+      }
     },
     "serve-static": {
       "continuous": true,

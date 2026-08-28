@@ -1,10 +1,116 @@
 # Approvia
 
+## Local development
+
+Install dependencies, start PostgreSQL, Keycloak, RabbitMQ, and Mailpit, then
+apply both database migrations:
+
+```sh
+pnpm install
+docker compose -f infra/docker-compose.yml up -d --wait
+pnpm expense:db:migrate
+pnpm notifications:db:migrate
+```
+
+Start the expense microservice, notifications worker, gateway, and frontend in
+separate terminals:
+
+```sh
+pnpm dev:expense
+pnpm dev:notifications
+pnpm dev:gateway
+pnpm dev:frontend
+```
+
+Open `http://localhost:4200`. Two development accounts are available:
+
+| Account                 | Password      | Access                                               |
+| ----------------------- | ------------- | ---------------------------------------------------- |
+| `test@approvia.dev`     | `password123` | Submit and track requests                            |
+| `approver@approvia.dev` | `password123` | Approve or reject requests and view approval history |
+
+Purchase amounts are stored in centavos and displayed in BRL. Requests have a
+single decision step: pending, approved, or rejected. Approvers cannot create
+requests, and rejections require a comment.
+
+The gateway owns HTTP authentication and role authorization. It forwards
+purchase-request commands over a durable RabbitMQ queue to the `expense`
+microservice. The expense service owns the Prisma persistence and approval
+business rules. RabbitMQ management is available at `http://localhost:15672`
+with the local `approvia` / `approvia` credentials. Email is captured by Mailpit
+over SMTP port `1026` and displayed at `http://localhost:8025`.
+
+Every request receives a decision deadline (default 5 days). Pending requests
+trigger reminder emails to approvers (first after 24h, then daily) and expire
+automatically at the deadline; expired requests cannot be decided and the
+requester is notified to resubmit if still needed. The durable timers run on a
+self-hosted Temporal server (`localhost:7233`, UI at `http://localhost:8233`).
+Tune the schedule with `APPROVAL_DECISION_TTL_HOURS`,
+`APPROVAL_REMINDER_DELAY_HOURS`, and `APPROVAL_REMINDER_INTERVAL_HOURS`
+(fractional hours work for local validation), and disable the worker with
+`WORKFLOWS_ENABLED=false`. See `docs/durable-workflows.md` for the design.
+
+If port `5433` is already used, choose another host port and use the same port
+in the expense service database URL:
+
+```sh
+DATABASE_PORT=5434 docker compose -f infra/docker-compose.yml up -d database
+DATABASE_URL=postgresql://approvia:approvia@localhost:5434/approvia?schema=public pnpm expense:db:deploy
+DATABASE_URL=postgresql://approvia:approvia@localhost:5434/approvia?schema=public pnpm dev:expense
+```
+
+The frontend uses Authorization Code flow with PKCE. Keycloak tokens are kept in
+memory, refreshed by `keycloak-js`, and sent only to same-origin `/api` requests.
+The gateway verifies the signature, issuer, `gateway` audience, expiration, and
+the required `user` realm role.
+
+Run the frontend, gateway, and expense workflow suites with:
+
+```sh
+pnpm test:all
+```
+
+The asynchronous email architecture and operational details are documented in
+[`docs/notifications.md`](docs/notifications.md).
+
+## Deployment authentication
+
+`apps/frontend/public/auth-config.json` is runtime configuration. Replace that
+file when deploying the built frontend; a rebuild is not required:
+
+```json
+{
+  "url": "https://identity.example.com",
+  "realm": "approvia",
+  "clientId": "frontend"
+}
+```
+
+Set `KEYCLOAK_BASE_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_AUDIENCE`, and
+`KEYCLOAK_REQUIRED_ROLE` for the gateway. Configure the production frontend
+origin as an exact valid redirect URI, web origin, and post-logout redirect URI
+in Keycloak. Do not use the development credentials from the realm export in a
+production realm.
+
+Set `RABBITMQ_URL`, `EXPENSE_SERVICE_QUEUE`, and
+`EXPENSE_SERVICE_QUEUE_DURABLE` on both the gateway and expense service. Set
+`EXPENSE_SERVICE_TIMEOUT_MS` on the gateway and `DATABASE_URL` on the expense
+service. `DATABASE_URL` is mandatory outside the local development script. Use
+TLS credentials and a dedicated RabbitMQ virtual host in production. The user
+identity in microservice messages is trusted only because access to that broker
+and queue is restricted to application services.
+
+The notifications worker also requires `NOTIFICATIONS_DATABASE_URL`, a
+restricted Keycloak service-account client, and email provider configuration.
+Set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `EMAIL_FROM` in production.
+The local default is SMTP through Mailpit. Expense events are published from a
+transactional outbox, so email availability does not affect expense commands.
+
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 
 ✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
 
 ## Generate a library
 
@@ -79,12 +185,13 @@ Nx Console is an editor extension that enriches your developer experience. It le
 
 Learn more:
 
-- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects)
+- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 - [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 
 And join the Nx community:
+
 - [Discord](https://go.nx.dev/community)
 - [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
 - [Our Youtube channel](https://www.youtube.com/@nxdevtools)

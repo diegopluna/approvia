@@ -2,16 +2,13 @@
   "name": "gateway-e2e",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
-  "implicitDependencies": ["gateway"],
+  "implicitDependencies": ["gateway", "expense"],
   "targets": {
     "e2e": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{e2eProjectRoot}"],
+      "executor": "nx:run-commands",
       "options": {
-        "jestConfig": "apps/gateway-e2e/jest.config.cts",
-        "passWithNoTests": true
-      },
-      "dependsOn": ["gateway:build", "gateway:serve"]
+        "command": "vitest run --config apps/gateway-e2e/vitest.config.ts"
+      }
     }
   }
 }

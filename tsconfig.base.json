@@ -1,6 +1,7 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
+    "baseUrl": ".",
     "rootDir": ".",
     "sourceMap": true,
     "declaration": false,
@@ -11,11 +12,11 @@
     "target": "es2015",
     "module": "esnext",
     "lib": ["es2020", "dom"],
-    "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
     "paths": {
-      "@approvia/contracts": ["./packages/shared/contracts/src/index.ts"]
-    }
+      "@approvia/events": ["packages/events/src/index.ts"]
+    },
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true
   },
   "exclude": ["node_modules", "tmp"]
 }

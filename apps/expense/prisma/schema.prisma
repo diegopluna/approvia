@@ -1,0 +1,76 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PurchaseRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum RequestActivityKind {
+  REMINDER_SENT
+  EXPIRED
+}
+
+model PurchaseRequest {
+  id                String                @id @default(uuid()) @db.Uuid
+  title             String                @db.VarChar(120)
+  justification     String                @db.VarChar(1000)
+  amountMinor       Int                   @map("amount_minor")
+  currency          String                @default("BRL") @db.Char(3)
+  status            PurchaseRequestStatus @default(PENDING)
+  requesterId       String                @map("requester_id") @db.VarChar(255)
+  requesterName     String                @map("requester_name") @db.VarChar(255)
+  requesterEmail    String?               @map("requester_email") @db.VarChar(320)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  decidedById       String?               @map("decided_by_id") @db.VarChar(255)
+  decidedByName     String?               @map("decided_by_name") @db.VarChar(255)
+  decisionComment   String?               @map("decision_comment") @db.VarChar(1000)
+  decidedAt         DateTime?             @map("decided_at") @db.Timestamptz(3)
+  idempotencyKey    String?               @map("idempotency_key") @db.VarChar(255)
+  decisionDeadlineAt DateTime?            @map("decision_deadline_at") @db.Timestamptz(3)
+  expiredAt         DateTime?             @map("expired_at") @db.Timestamptz(3)
+  activities        RequestActivity[]
+
+  @@unique([requesterId, idempotencyKey])
+  @@index([requesterId, createdAt])
+  @@index([status, createdAt])
+  @@map("purchase_requests")
+}
+
+model RequestActivity {
+  id         String              @id @default(uuid()) @db.Uuid
+  requestId  String              @map("request_id") @db.Uuid
+  request    PurchaseRequest     @relation(fields: [requestId], references: [id])
+  kind       RequestActivityKind
+  occurrence Int?
+  details    Json?
+  occurredAt DateTime            @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@unique([requestId, kind, occurrence])
+  @@index([requestId, occurredAt])
+  @@map("request_activities")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventName   String    @map("event_name") @db.VarChar(120)
+  aggregateId String    @map("aggregate_id") @db.Uuid
+  payload     Json
+  occurredAt  DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error") @db.Text
+  processingAt DateTime? @map("processing_at") @db.Timestamptz(3)
+
+  @@index([publishedAt, occurredAt])
+  @@map("outbox_events")
+}
